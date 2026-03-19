@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="SJP Networking — Encontre o parceiro de negócios ideal. Busca inteligente com IA para conectar empreendedores.">
+    <title>SJP Networking — Conector de Negócios Inteligente</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <!-- Ambient background -->
+    <div class="bg-ambient"></div>
+
+    <!-- Header -->
+    <header class="header" id="header">
+        <div class="header-inner">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 44 44" fill="none">
+                        <circle cx="22" cy="22" r="20" stroke="url(#logoGrad)" stroke-width="2.5"/>
+                        <circle cx="14" cy="17" r="3.2" fill="url(#logoGrad)"/>
+                        <circle cx="30" cy="17" r="3.2" fill="url(#logoGrad)"/>
+                        <circle cx="22" cy="30" r="3.2" fill="url(#logoGrad)"/>
+                        <line x1="14" y1="17" x2="30" y2="17" stroke="url(#logoGrad)" stroke-width="1.5" opacity="0.5"/>
+                        <line x1="14" y1="17" x2="22" y2="30" stroke="url(#logoGrad)" stroke-width="1.5" opacity="0.5"/>
+                        <line x1="30" y1="17" x2="22" y2="30" stroke="url(#logoGrad)" stroke-width="1.5" opacity="0.5"/>
+                        <defs>
+                            <linearGradient id="logoGrad" x1="0" y1="0" x2="44" y2="44">
+                                <stop offset="0%" stop-color="#F5A623"/>
+                                <stop offset="100%" stop-color="#FF6B35"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <span class="logo-text">SJP Networking</span>
+            </div>
+            <div class="header-badge" id="headerBadge">
+                <span class="badge-dot"></span>
+                <span>Online</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs" id="navTabs">
+        <div class="nav-inner">
+            <button class="nav-tab active" data-mode="search" id="tabSearch">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <span>Busca IA</span>
+            </button>
+            <button class="nav-tab" data-mode="audit" id="tabAudit">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                <span>Painel Admin</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main -->
+    <main class="main" id="mainContent">
+
+        <!-- ===== MODE 1: SEARCH ===== -->
+        <section class="panel active" id="panelSearch">
+            <div class="search-hero">
+                <h2 class="hero-title">Encontre o parceiro de <br><span class="gold-text">negócios ideal.</span></h2>
+                <p class="hero-sub">Descreva o que você precisa e nossa IA encontrará os melhores especialistas do grupo.</p>
+
+                <div class="search-box">
+                    <textarea id="searchInput" rows="3" placeholder="Ex: Preciso de alguém para fazer o marketing das minhas redes sociais..."></textarea>
+                    <button class="search-btn" id="searchBtn">
+                        Buscar Especialista
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    </button>
+                </div>
+
+                <div class="quick-chips">
+                    <button class="chip" data-q="advogado">⚖️ Advogado</button>
+                    <button class="chip" data-q="marketing digital">📱 Marketing</button>
+                    <button class="chip" data-q="contabilidade">📊 Contabilidade</button>
+                    <button class="chip" data-q="energia solar">☀️ Energia Solar</button>
+                    <button class="chip" data-q="informatica">💻 Tecnologia</button>
+                    <button class="chip" data-q="fotografia">📸 Fotografia</button>
+                </div>
+            </div>
+
+            <!-- Results container -->
+            <div class="results-wrap" id="resultsWrap" style="display:none">
+                <div class="results-head">
+                    <h3 id="resultsTitle">Especialistas encontrados</h3>
+                    <span class="results-badge" id="resultsBadge"></span>
+                </div>
+                <div class="results-list" id="resultsList"></div>
+            </div>
+
+            <!-- No results -->
+            <div class="empty-state" id="emptyState" style="display:none">
+                <div class="empty-icon">🔍</div>
+                <h3>Nenhum especialista compatível</h3>
+                <p>Não há membros no grupo SJP Networking com compatibilidade acima de 70% para essa necessidade no momento.</p>
+            </div>
+        </section>
+
+        <!-- ===== MODE 2: AUDIT (ADMIN DASHBOARD) ===== -->
+        <section class="panel" id="panelAudit">
+            <div class="audit-header-section">
+                <h2 class="hero-title">Painel <span class="gold-text">Administrativo</span></h2>
+                <p class="hero-sub">Verificação e auditoria da saúde dos dados do grupo SJP Networking.</p>
+                <button class="sync-btn" id="syncBtn">
+                    <svg class="sync-icon" id="syncIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                    </svg>
+                    Sincronizar Planilha Agora
+                </button>
+            </div>
+
+            <!-- Dashboard Stats -->
+            <div class="dash-stats" id="dashStats" style="display:none">
+                <div class="stat-card">
+                    <div class="stat-icon">👥</div>
+                    <div class="stat-info">
+                        <span class="stat-num" id="statTotal">—</span>
+                        <span class="stat-label">Total de Membros</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-info">
+                        <span class="stat-num green" id="statComplete">—</span>
+                        <span class="stat-label">Cadastros Completos</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">⚠️</div>
+                    <div class="stat-info">
+                        <span class="stat-num warn" id="statIssues">—</span>
+                        <span class="stat-label">Inconsistências</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Structure Status -->
+            <div class="structure-status" id="structureStatus" style="display:none"></div>
+
+            <!-- Audit Table -->
+            <div class="audit-table-wrap" id="auditTableWrap" style="display:none">
+                <div class="table-head">
+                    <h3>🔎 Detalhamento das Inconsistências</h3>
+                    <span class="report-date" id="reportDate"></span>
+                </div>
+                <div class="audit-table" id="auditTable"></div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay" style="display:none">
+        <div class="loader-box">
+            <div class="loader-ring"></div>
+            <p class="loader-msg" id="loaderMsg">Carregando dados...</p>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>SJP Networking © 2026 — Conectando empreendedores de São José dos Pinhais</p>
+    </footer>
+
+    <script src="app.js?v=2"></script>
+</body>
+</html>
