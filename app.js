@@ -5,7 +5,8 @@
 
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1woRI4hp-whQJIbS-8vhAtj7L-scfBUvNGTJ5pBsyahI/export?format=csv';
 
-const GEMINI_API_KEY = "AIzaSyBObVxtRmz7QPUAXnmpQ8DPPxLu0gleziQ";
+// GEMINI_API_KEY é carregada via config.js (arquivo gitignored, NÃO commitar)
+// Se GEMINI_API_KEY não estiver definida, o sistema funciona com buscas locais.
 
 // Expected columns (0-indexed after timestamp)
 const COL = { NOME: 1, EMPRESA: 2, RAMO: 3, DESC: 4, WHATSAPP: 5, INSTAGRAM: 6, INFO: 7 };
@@ -126,9 +127,9 @@ const synonymMap = {
     // Technology — each sub-niche is separate
     'tecnologia': ['tecnologia','ti','tech'],
     'computador': ['informatica','computador','notebook','manutencao','reparo','assistencia tecnica','hardware','pc'],
-    'software': ['software','softwares','erp','aplicativo','app','fabrica de software','programacao','inteligencia artificial'],
-    'ia': ['inteligencia artificial','machine learning','chatbot','algoritmo','automacao','ia'],
-    'inteligencia artificial': ['inteligencia artificial','machine learning','chatbot','algoritmo','automacao','ia'],
+    'software': ['software','softwares','erp','aplicativo','app','fabrica de software','programacao'],
+    'ia': ['inteligencia artificial','ia'],
+    'inteligencia artificial': ['inteligencia artificial','ia'],
     'informatica': ['informatica','computador','notebook','manutencao','reparo','assistencia tecnica','hardware','pc','ti'],
     
     // Construction & Engineering
@@ -182,7 +183,7 @@ const synonymMap = {
     'carro': ['carro','automotivo','automovel','auto pecas','veicular','polimento','lavagem'],
     
     // Photo/Video
-    'fotografia': ['fotografia','fotografo','ensaio fotografico','foto','ensaio'],
+    'fotografia': ['fotografia','fotografo','ensaio fotografico'],
     'video': ['video','filmagem','edicao de video','producao audiovisual','reels'],
     
     // HR
@@ -299,7 +300,9 @@ function expandQuery(query) {
             if (tok.length <= 3) {
                 matches = (normKey === tok);
             } else {
-                matches = (normKey === tok || normKey.includes(tok) || tok.includes(normKey) || isFuzzyMatch(tok, normKey));
+                // Strict word match for technical terms to avoid "inteligencia" matching "inteligencia artificial"
+                const regex = new RegExp('\\b' + tok + '\\b');
+                matches = regex.test(normKey) || isFuzzyMatch(tok, normKey);
             }
             
             // If it doesn't match the key, check if it matches ANY of the values
@@ -308,7 +311,8 @@ function expandQuery(query) {
                     if (tok.length <= 3) {
                         if (syn === tok) { matches = true; break; }
                     } else {
-                        if (syn === tok || syn.includes(tok) || tok.includes(syn) || isFuzzyMatch(tok, syn)) {
+                        const regex = new RegExp('\\b' + tok + '\\b');
+                        if (regex.test(syn) || isFuzzyMatch(tok, syn)) {
                             matches = true; break;
                         }
                     }
@@ -343,14 +347,27 @@ function calcCompatibility(member, expandedTerms) {
             return regex.test(normField);
         }
         
-        // LONGER TERMS: substring match (allows 'software' to match 'softwares')
-        if (normField.includes(term)) return true;
+        // MULTI-WORD TERMS: must match as exact phrase
+        // This prevents 'inteligencia artificial' from matching 'inteligencia emocional'
+        if (term.includes(' ')) {
+            return normField.includes(term);
+        }
         
-        // Fuzzy word-level match (handles typos)
-        if (term.length >= 4) {
+        // SINGLE LONGER TERMS: word-boundary match to avoid partial substring matches
+        // Use word boundary regex first
+        const wordRegex = new RegExp('\\b' + term + '\\b');
+        if (wordRegex.test(normField)) return true;
+        
+        // Allow partial match only if term is the start of a word in the field
+        // e.g., 'software' matches 'softwares'
+        const startRegex = new RegExp('\\b' + term);
+        if (startRegex.test(normField)) return true;
+        
+        // Fuzzy word-level match (handles typos) — ONLY for longer words
+        if (term.length >= 5) {
             const fieldWordList = normField.split(' ');
             for (const fw of fieldWordList) {
-                if (fw.length >= 4 && isFuzzyMatch(term, fw)) return true;
+                if (fw.length >= 5 && isFuzzyMatch(term, fw)) return true;
             }
         }
         return false;
@@ -370,24 +387,27 @@ function calcCompatibility(member, expandedTerms) {
     if (ramoHits + descHits + infoHits + empHits === 0) return 0;
     
     // BASE SCORE: determined by which field has the best match
-    // Ramo is the strongest signal (it's the member's declared business area)
+    // Ramo is the strongest signal — it's the member's declared business area
+    // Members WITHOUT a ramo match get score < 70 (filtered out)
     let base = 0;
-    if (ramoHits >= 3) base = 90;
-    else if (ramoHits >= 2) base = 85;
-    else if (ramoHits >= 1) base = 80;
-    else if (descHits >= 3) base = 82;
-    else if (descHits >= 2) base = 78;
-    else if (descHits >= 1) base = 76;
-    else if (empHits >= 1) base = 74;
-    else if (infoHits >= 1) base = 72;
+    if (ramoHits >= 3) base = 92;
+    else if (ramoHits >= 2) base = 87;
+    else if (ramoHits >= 1) base = 82;
+    else if (empHits >= 1 && descHits >= 2) base = 78; // Company name + description = acceptable
+    else if (empHits >= 1) base = 74; // Company name match only
+    else {
+        // NO ramo match and NO company match = likely irrelevant
+        // Description/info-only matches are NOT enough to qualify
+        return 0;
+    }
     
-    // Depth bonus: more total matches = higher confidence (up to +8)
+    // Depth bonus: more total matches = higher confidence (up to +6)
     const totalHits = ramoHits + descHits + infoHits + empHits;
-    const depthBonus = Math.min(8, Math.floor((totalHits - 1) * 1.5));
+    const depthBonus = Math.min(6, Math.floor((totalHits - 1) * 1.2));
     
     // Multi-field bonus: matching in multiple fields = stronger signal
     const fieldsHit = [ramoHits > 0, descHits > 0, infoHits > 0, empHits > 0].filter(Boolean).length;
-    const fieldBonus = fieldsHit >= 3 ? 6 : fieldsHit >= 2 ? 3 : 0;
+    const fieldBonus = fieldsHit >= 3 ? 4 : fieldsHit >= 2 ? 2 : 0;
     
     // Small penalty if no description (less data to verify match)
     const descPenalty = (!member.descricao || member.descricao.length < 10) ? -2 : 0;
@@ -415,6 +435,32 @@ function generateReason(member, query) {
 function searchMembers(query) {
     if (!query.trim()) return [];
     
+    // ======== EXACT NAME/COMPANY MATCH ========
+    const exactQuery = normalize(query);
+    const queryWords = exactQuery.split(' ').filter(w => w.length > 1);
+    const exactMatches = membersData.filter(m => {
+        const normNome = normalize(m.nome || '');
+        const normEmpresa = normalize(m.empresa || '');
+        // Full exact match
+        if (normNome === exactQuery || normEmpresa === exactQuery) return true;
+        // Partial match — only if query has 2+ words (looks like a name, not a category)
+        if (queryWords.length >= 2 && exactQuery.length >= 5) {
+            if (normNome.includes(exactQuery) || normEmpresa.includes(exactQuery)) return true;
+        }
+        return false;
+    });
+
+    if (exactMatches.length > 0) {
+        const direct = exactMatches.map(m => ({
+            member: m,
+            score: 100,
+            reason: `Correspondência exata para "${query}".`
+        }));
+        direct.sort((a,b) => (a.member.nome.length + (a.member.empresa||'').length) - (b.member.nome.length + (b.member.empresa||'').length));
+        return direct.slice(0, 5);
+    }
+    // ==========================================
+
     const expandedTerms = expandQuery(query);
     
     const scored = membersData.map(m => ({
@@ -422,32 +468,18 @@ function searchMembers(query) {
         score: calcCompatibility(m, expandedTerms)
     }));
     
-    return scored
+    // Sort by score descending
+    const sorted = scored
         .filter(s => s.score >= 70)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10); // Grab top 10 so Gemini has options to filter down
+        .sort((a, b) => b.score - a.score);
+    
+    return sorted.slice(0, 10); // Send up to 10 candidates for Gemini to filter
 }
 
 // ========== RENDER HELPERS ==========
 
 function ringProgressSVG(pct) {
-    const r = 22, circ = 2 * Math.PI * r;
-    const offset = circ - (pct / 100) * circ;
-    const color = pct >= 90 ? '#22c55e' : pct >= 80 ? '#F5A623' : '#eab308';
-    const label = pct >= 90 ? '🔥' : pct >= 80 ? '⭐' : '✨';
-    return `
-        <div class="ring-badge">
-            <svg width="56" height="56" viewBox="0 0 50 50">
-                <circle class="ring-bg" cx="25" cy="25" r="${r}"/>
-                <circle class="ring-fg" cx="25" cy="25" r="${r}"
-                    stroke="${color}"
-                    stroke-dasharray="${circ}"
-                    stroke-dashoffset="${offset}"
-                />
-            </svg>
-            <div class="ring-pct">${label}${pct}%<small>Ideal</small></div>
-        </div>
-    `;
+    return `<div class="match-badge">${pct}% Compatível</div>`;
 }
 
 function cleanPhone(raw) {
@@ -509,10 +541,22 @@ function escHtml(str) {
 }
 
 // ========== GEMINI AI INTEGRATION ==========
+
+// Calls Gemini to filter pre-selected candidates
 async function analyzeWithGemini(query, candidates) {
     if(candidates.length === 0) return candidates;
     
-    // Simplifica dados para enviar
+    // Se não há chave API configurada, pula a análise Gemini
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === 'SUA_CHAVE_AQUI' || GEMINI_API_KEY.length < 10) {
+        console.info('Gemini desativado — usando busca local. Configure sua chave em config.js');
+        if (candidates.length > 1) {
+            const topScore = candidates[0].score;
+            const meaningful = candidates.filter(s => s.score >= topScore - 5);
+            if (meaningful.length <= 3) return meaningful;
+        }
+        return candidates.slice(0, 5);
+    }
+    
     const candData = candidates.map(c => ({
         nome: c.member.nome,
         empresa: c.member.empresa,
@@ -520,21 +564,67 @@ async function analyzeWithGemini(query, candidates) {
         descricao: (c.member.descricao || '').substring(0, 200)
     }));
     
-    const prompt = `Você é o auditor IA do 'SJP Networking'.
+    const prompt = `Você é um FILTRO RIGOROSO de resultados do 'SJP Networking'.
 O usuário buscou: "${query}".
-Especialistas pré-filtrados:
+
+CANDIDATOS PRÉ-FILTRADOS:
 ${JSON.stringify(candData)}
 
-Sua tarefa: 
-1. Elimine "falsos positivos". Retorne apenas especialistas que REALMENTE resolvam o problema (MÁXIMO 5).
-2. Atribua um score (70 a 100).
-3. Crie uma justificativa muito curta, focada na necessidade do usuário (máx 120 caracteres).
+REGRAS OBRIGATÓRIAS:
+1. ANALISE O RAMO DE ATUAÇÃO: O ramo ("ramo") do candidato deve ser DIRETAMENTE relacionado à busca "${query}". Se o ramo não tem relação direta, ELIMINE o candidato.
+2. ZERO TOLERÂNCIA A FALSOS POSITIVOS: Não inclua candidatos que apenas MENCIONAM o termo em um contexto diferente.
+3. SE NÃO TEM RELAÇÃO DIRETA COM "${query}", ELIMINE. Na dúvida, elimine.
+4. MÁXIMO 5 resultados. Se só houver 1 ou 2 relevantes, retorne apenas esses.
+5. Se NENHUM candidato for realmente relevante, retorne [].
+6. Score de 70 a 100. Justificativa curta (máx 120 chars).
 
-Retorne APENAS o JSON válido, sem avisos, sem markdown:
-[
-  { "nome": "nome exato do membro avaliado", "score": 95, "reason": "Justificativa." }
-]`;
+JSON VÁLIDO apenas:
+[{"nome":"nome exato","score":95,"reason":"Justificativa direta."}]`;
 
+    return await callGeminiAPI(prompt, candidates);
+}
+
+// Full semantic search: sends ALL members to Gemini when local search fails
+async function fullSemanticSearch(query, allMembers) {
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === 'SUA_CHAVE_AQUI' || GEMINI_API_KEY.length < 10) {
+        console.info('Gemini desativado — busca semântica completa indisponível.');
+        return [];
+    }
+    
+    // Compact data: send only essential fields to minimize token usage
+    const compactMembers = allMembers.map(m => ({
+        nome: m.nome,
+        empresa: m.empresa,
+        ramo: m.ramo,
+        desc: (m.descricao || '').substring(0, 150)
+    }));
+    
+    const prompt = `Você é um BUSCADOR INTELIGENTE do 'SJP Networking', um grupo de empreendedores.
+O usuário está buscando: "${query}"
+
+ABAIXO está a lista COMPLETA de todos os membros do grupo. Seu trabalho é encontrar os membros cujo negócio ATENDE DIRETAMENTE à necessidade do usuário.
+
+MEMBROS DO GRUPO:
+${JSON.stringify(compactMembers)}
+
+REGRAS:
+1. INTERPRETE A INTENÇÃO: Entenda o que o usuário realmente precisa. Ex: "ativação de comida e bebida no meu evento" = empresas de alimentação, buffet, gastronomia, bebidas, catering.
+2. ANALISE O RAMO E DESCRIÇÃO: O ramo e/ou descrição do membro devem ser DIRETAMENTE relacionados à necessidade.
+3. ZERO FALSOS POSITIVOS: Não inclua membros que mencionem o termo em contexto diferente. Na dúvida, NÃO inclua.
+4. MÁXIMO 5 resultados. Se só 1 ou 2 são relevantes, retorne apenas esses.
+5. Se NENHUM membro atende à necessidade, retorne [].
+6. Score de 70 a 100. Justificativa curta e direta (máx 120 chars).
+
+Retorne APENAS JSON válido:
+[{"nome":"nome exato do membro","score":95,"reason":"Justificativa direta."}]`;
+
+    // Use allMembers as the lookup source
+    const fakeCandidates = allMembers.map(m => ({ member: m, score: 0 }));
+    return await callGeminiAPI(prompt, fakeCandidates);
+}
+
+// Shared Gemini API caller
+async function callGeminiAPI(prompt, lookupSource) {
     try {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
             method: 'POST',
@@ -547,16 +637,15 @@ Retorne APENAS o JSON válido, sem avisos, sem markdown:
         
         if (!response.ok) {
             console.error("Gemini API Error details:", await response.text());
-            return candidates.slice(0, 5);
+            return lookupSource.filter(c => c.score >= 70).slice(0, 5);
         }
         
         const data = await response.json();
         if (!data.candidates || data.candidates.length === 0) {
-            return candidates.slice(0, 5);
+            return lookupSource.filter(c => c.score >= 70).slice(0, 5);
         }
         
         let rawText = data.candidates[0].content.parts[0].text.trim();
-        // Remove markdown formatting if present
         if (rawText.startsWith('```')) {
             rawText = rawText.replace(/^```(json)?\n?/, '').replace(/\n?```$/, '').trim();
         }
@@ -565,15 +654,15 @@ Retorne APENAS o JSON válido, sem avisos, sem markdown:
         
         const finalResults = [];
         for (const g of geminiResults) {
-            const original = candidates.find(c => c.member.nome === g.nome || c.member.empresa === g.nome);
+            const original = lookupSource.find(c => c.member.nome === g.nome || c.member.empresa === g.nome);
             if (original) {
                 finalResults.push({ member: original.member, score: g.score, reason: g.reason });
             }
         }
-        return finalResults.sort((a,b) => b.score - a.score);
+        return finalResults.sort((a,b) => b.score - a.score).slice(0, 5);
     } catch(e) {
         console.error("Gemini Catch Error:", e);
-        return candidates.slice(0, 5); // Fallback
+        return lookupSource.filter(c => c.score >= 70).slice(0, 5);
     }
 }
 
@@ -588,7 +677,8 @@ async function doSearch() {
     const hide = showLoading([
         'Acessando planilha...',
         'Cruzando especialidades...',
-        'IA Gemini analisando descrições...',
+        'IA Gemini analisando sua busca...',
+        'Filtrando resultados com inteligência artificial...',
         'Gerando relatório final...'
     ]);
 
@@ -597,8 +687,39 @@ async function doSearch() {
         
         let results = searchMembers(query);
         
-        // Let Gemini analyze the initial match results
-        results = await analyzeWithGemini(query, results);
+        // Determine if this is a natural language query (4+ meaningful words = sentence/phrase)
+        const queryWordCount = query.split(/\s+/).filter(w => w.length > 1).length;
+        const isNaturalLanguage = queryWordCount >= 4;
+        
+        if (isNaturalLanguage) {
+            // NATURAL LANGUAGE QUERY → always use full semantic search with Gemini
+            // This ensures that phrases like "quero parceiros para comida e bebida" are
+            // properly interpreted by AI, not confused with keyword/name matching
+            console.info(`Linguagem natural detectada (${queryWordCount} palavras) — enviando todos os membros ao Gemini para busca semântica.`);
+            const aiResults = await fullSemanticSearch(query, membersData);
+            if (aiResults.length > 0) {
+                results = aiResults;
+            } else if (results.length > 0) {
+                // AI found nothing relevant — fall back to local + Gemini filter
+                results = await analyzeWithGemini(query, results);
+            }
+        } else if (results.length > 0 && results[0].score === 100) {
+            // Short query with exact name/company match — use directly (no AI needed)
+            console.info('Busca direta por nome/empresa — IA desnecessária.');
+        } else if (results.length < 3) {
+            // Short query with few local results — use full semantic search
+            console.info(`Poucos resultados locais (${results.length}) — ativando busca semântica completa.`);
+            const aiResults = await fullSemanticSearch(query, membersData);
+            if (aiResults.length > 0) {
+                results = aiResults;
+            } else if (results.length > 0) {
+                results = await analyzeWithGemini(query, results);
+            }
+        } else {
+            // Short keyword query with enough local candidates — let Gemini filter
+            console.info(`Busca local encontrou ${results.length} candidatos — enviando ao Gemini para filtrar.`);
+            results = await analyzeWithGemini(query, results);
+        }
         
         hide();
 
@@ -735,7 +856,6 @@ function renderAuditReport() {
 
 // ========== TAB SWITCHING ==========
 function switchMode(mode) {
-    document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
     dom.panelSearch.classList.toggle('active', mode === 'search');
     dom.panelAudit.classList.toggle('active', mode === 'audit');
 }
@@ -745,9 +865,9 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ========== INIT ==========
 function init() {
-    // Tab clicks
-    dom.tabSearch.addEventListener('click', () => switchMode('search'));
-    dom.tabAudit.addEventListener('click', () => switchMode('audit'));
+    // Tab clicks safely attached
+    if (dom.tabSearch) dom.tabSearch.addEventListener('click', () => switchMode('search'));
+    if (dom.tabAudit) dom.tabAudit.addEventListener('click', () => switchMode('audit'));
 
     // Search
     dom.searchBtn.addEventListener('click', doSearch);
