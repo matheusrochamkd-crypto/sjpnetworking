@@ -1,7 +1,5 @@
-# Configuração com chaves API (NUNCA commitar)
-config.js
-
 # Sistema
 node_modules/
 .DS_Store
 Thumbs.db
+desktop.ini
