@@ -5,4 +5,4 @@
 
 // Cole aqui sua chave API do Google Gemini.
 // Gere uma nova em: https://aistudio.google.com/apikey
-var GEMINI_API_KEY = "AIzaSyCSx1dfXDyUEJXxhOHPYC2E5UGTZhzcBqU";
+var GEMINI_API_KEY = "AIzaSyCkGozKYfiE3FwQDlTeavA_h3mlZx2KoKw";
