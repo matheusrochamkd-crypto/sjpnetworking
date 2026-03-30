@@ -70,7 +70,8 @@ async function fetchData() {
     if (rows.length < 2) throw new Error('Planilha vazia');
     const header = rows[0];
     const data = rows.slice(1).filter(r => r.some(c => c !== ''));
-    return data.map(r => ({
+    return data.map((r, index) => ({
+        id: index + 1,
         nome:      (r[COL.NOME] || '').trim(),
         empresa:   (r[COL.EMPRESA] || '').trim(),
         ramo:      (r[COL.RAMO] || '').trim(),
@@ -593,6 +594,7 @@ async function analyzeWithGemini(query, candidates, isNaturalLang = false) {
     }
     
     const candData = candidates.map(c => ({
+        id: c.member.id,
         nome: c.member.nome,
         empresa: c.member.empresa,
         ramo: c.member.ramo,
@@ -614,8 +616,8 @@ REGRAS OBRIGATÓRIAS — SIGA TODAS SEM EXCEÇÃO:
 6. Se NENHUM candidato pode REALMENTE resolver a necessidade do usuário, retorne [].
 7. Score de 70 a 100. Justificativa curta (máx 120 chars).
 
-JSON VÁLIDO apenas:
-[{"nome":"nome exato","score":95,"reason":"Justificativa direta."}]`;
+JSON VÁLIDO apenas (use o 'id' correspondente):
+[{"id":1,"score":95,"reason":"Justificativa direta."}]`;
 
     return await callGeminiAPI(prompt, candidates, isNaturalLang);
 }
@@ -629,6 +631,7 @@ async function fullSemanticSearch(query, allMembers) {
     
     // Compact data: send only essential fields to minimize token usage
     const compactMembers = allMembers.map(m => ({
+        id: m.id,
         nome: m.nome,
         empresa: m.empresa,
         ramo: m.ramo,
@@ -656,8 +659,8 @@ REGRAS OBRIGATÓRIAS — SIGA TODAS SEM EXCEÇÃO:
 6. Se NENHUM membro pode REALMENTE atender à necessidade, retorne [].
 7. Score de 70 a 100. Justificativa curta e direta (máx 120 chars).
 
-Retorne APENAS JSON válido:
-[{"nome":"nome exato do membro","score":95,"reason":"Justificativa direta."}]`;
+Retorne APENAS JSON válido (use o 'id' correspondente ao membro):
+[{"id":1,"score":95,"reason":"Justificativa direta."}]`;
 
     // Use allMembers as the lookup source
     const fakeCandidates = allMembers.map(m => ({ member: m, score: 0 }));
@@ -708,7 +711,13 @@ async function callGeminiAPI(prompt, lookupSource, isSemanticQuery = false) {
         
         const finalResults = [];
         for (const g of geminiResults) {
-            const original = lookupSource.find(c => c.member.nome === g.nome || c.member.empresa === g.nome);
+            // Busca blindada: Prioriza ID, mas aceita nome exato ou normalizado caso a IA erre o formato
+            const original = lookupSource.find(c => 
+                (g.id !== undefined && c.member.id === g.id) || 
+                (g.nome && (c.member.nome === g.nome || c.member.empresa === g.nome)) ||
+                (g.nome && (normalize(c.member.nome) === normalize(g.nome) || normalize(c.member.empresa) === normalize(g.nome)))
+            );
+            
             if (original) {
                 finalResults.push({ member: original.member, score: g.score, reason: g.reason });
             }
