@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Chave API — NUNCA commitar
+config.js
