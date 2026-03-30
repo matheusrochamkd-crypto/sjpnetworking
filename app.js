@@ -746,9 +746,10 @@ async function doSearch() {
         
         let results = searchMembers(query);
         
-        // Determine if this is a natural language query (3+ meaningful words = sentence/phrase)
+        // Determine if this is a natural language query
+        // Modificado a pedido do usuário: ativar Inteligência Artificial a partir de 1 palavra
         const queryWordCount = query.split(/\s+/).filter(w => w.length > 1).length;
-        const isNaturalLanguage = queryWordCount >= 3;
+        const isNaturalLanguage = queryWordCount >= 1;
         
         if (isNaturalLanguage) {
             // NATURAL LANGUAGE QUERY → always use full semantic search with Gemini
