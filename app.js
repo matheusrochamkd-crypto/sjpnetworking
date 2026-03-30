@@ -125,12 +125,15 @@ const synonymMap = {
     'redes sociais': ['social media','redes sociais','instagram','conteudo','postagem','stories','reels'],
     
     // Technology — each sub-niche is separate
-    'tecnologia': ['tecnologia','ti','tech'],
+    'tecnologia': ['tecnologia','ti','tech','desenvolvimento','programacao'],
     'computador': ['informatica','computador','notebook','manutencao','reparo','assistencia tecnica','hardware','pc'],
-    'software': ['software','softwares','erp','aplicativo','app','fabrica de software','programacao'],
-    'ia': ['inteligencia artificial','ia'],
-    'inteligencia artificial': ['inteligencia artificial','ia'],
+    'software': ['software','softwares','erp','aplicativo','app','fabrica de software','programacao','sistema','sistemas'],
+    'ia': ['inteligencia artificial','ia','chatbot','automacao','bot','whatsapp'],
+    'inteligencia artificial': ['inteligencia artificial','ia','chatbot','automacao','bot'],
     'informatica': ['informatica','computador','notebook','manutencao','reparo','assistencia tecnica','hardware','pc','ti'],
+    'chatbot': ['chatbot','bot','whatsapp','atendimento','ia','inteligencia artificial','tecnologia','software','automacao'],
+    'automacao': ['automacao','processos','chatbot','bot','tecnologia','software','sistemas'],
+    'whatsapp': ['whatsapp','chatbot','bot','atendimento','automacao'],
     
     // Construction & Engineering
     'construcao': ['construcao','engenharia','obra','reforma','material de construcao','pedreiro','telhado','estrutura metalica'],
@@ -644,10 +647,11 @@ REGRAS OBRIGATÓRIAS — SIGA TODAS SEM EXCEÇÃO:
 1. INTERPRETE A INTENÇÃO REAL: Entenda o que o usuário REALMENTE precisa.
    - "preciso de alguem para configurar controle portão" = automação, serralheria, portões eletrônicos, segurança eletrônica, instalação.
    - "ativação de comida e bebida no meu evento" = alimentação, buffet, gastronomia, bebidas, catering.
+   - "chatbot para whatsapp" ou "automação" = empresas de Inteligência Artificial (IA), fábricas de software, desenvolvedores, tecnologia da informação (TI).
    - NÃO confunda palavras com nomes de empresa. "controle" na busca NÃO significa a empresa "ControlG".
-2. ANALISE O RAMO E DESCRIÇÃO: O ramo e/ou descrição do membro devem indicar que ele PODE RESOLVER o problema do usuário.
+2. ANALISE O RAMO E DESCRIÇÃO: O ramo e/ou descrição do membro devem indicar que ele PODE RESOLVER o problema do usuário. Para buscas tecnológicas (ex: chatbot), desenvolvedores de software, startups de tech ou agências de IA SÃO os resultados corretos.
 3. COINCIDÊNCIA DE NOME NÃO É RELEVÂNCIA: Se o nome da empresa contém uma palavra da busca mas o RAMO/NEGÓCIO não tem relação, NÃO inclua.
-4. ZERO FALSOS POSITIVOS: É MUITO MELHOR retornar uma LISTA VAZIA [] do que retornar um resultado que não resolve o problema do usuário. Na dúvida, NÃO inclua.
+4. ZERO FALSOS POSITIVOS PARA OUTROS RAMOS: É MUITO MELHOR retornar uma LISTA VAZIA [] do que retornar um resultado que não resolve o problema. Na dúvida sobre a capacidade técnica, NÃO inclua.
 5. MÁXIMO 5 resultados. Se só 1 ou 2 são relevantes, retorne apenas esses.
 6. Se NENHUM membro pode REALMENTE atender à necessidade, retorne [].
 7. Score de 70 a 100. Justificativa curta e direta (máx 120 chars).
@@ -742,9 +746,9 @@ async function doSearch() {
         
         let results = searchMembers(query);
         
-        // Determine if this is a natural language query (4+ meaningful words = sentence/phrase)
+        // Determine if this is a natural language query (3+ meaningful words = sentence/phrase)
         const queryWordCount = query.split(/\s+/).filter(w => w.length > 1).length;
-        const isNaturalLanguage = queryWordCount >= 4;
+        const isNaturalLanguage = queryWordCount >= 3;
         
         if (isNaturalLanguage) {
             // NATURAL LANGUAGE QUERY → always use full semantic search with Gemini
