@@ -619,7 +619,13 @@ REGRAS OBRIGATÓRIAS — SIGA TODAS SEM EXCEÇÃO:
 JSON VÁLIDO apenas (use o 'id' correspondente):
 [{"id":1,"score":95,"reason":"Justificativa direta."}]`;
 
-    return await callGeminiAPI(prompt, candidates, isNaturalLang);
+    const apiResult = await callGeminiAPI(prompt, candidates);
+    if (apiResult.success) {
+        return apiResult.results;
+    }
+    // API falhou — retorna candidatos locais como fallback
+    console.warn('[analyzeWithGemini] API falhou, usando candidatos locais.');
+    return candidates.slice(0, 5);
 }
 
 // Full semantic search: sends ALL members to Gemini when local search fails
@@ -664,13 +670,21 @@ Retorne APENAS JSON válido (use o 'id' correspondente ao membro):
 
     // Use allMembers as the lookup source
     const fakeCandidates = allMembers.map(m => ({ member: m, score: 0 }));
-    return await callGeminiAPI(prompt, fakeCandidates, true);
+    const apiResult = await callGeminiAPI(prompt, fakeCandidates);
+    if (apiResult.success) {
+        return apiResult.results;
+    }
+    // API falhou — retorna vazio, o caller vai usar fallback local
+    console.warn('[fullSemanticSearch] API falhou.');
+    return [];
 }
 
 // Shared Gemini API caller
-// isSemanticQuery: when true, NEVER fall back to unfiltered local results (return [] instead)
-async function callGeminiAPI(prompt, lookupSource, isSemanticQuery = false) {
+// Returns: { success: boolean, results: array }
+// When success=false, the caller decides how to handle fallback
+async function callGeminiAPI(prompt, lookupSource) {
     try {
+        console.info('[Gemini] Enviando requisição para a API...');
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -681,37 +695,45 @@ async function callGeminiAPI(prompt, lookupSource, isSemanticQuery = false) {
         });
         
         if (!response.ok) {
-            console.error("Gemini API Error details:", await response.text());
-            // For semantic/natural language queries: return EMPTY instead of bad local results
-            if (isSemanticQuery) {
-                console.warn('Gemini falhou em busca semântica — retornando vazio para evitar falsos positivos.');
-                return [];
-            }
-            return lookupSource.filter(c => c.score >= 70).slice(0, 5);
+            const errText = await response.text();
+            console.error("[Gemini] API HTTP Error:", response.status, errText);
+            return { success: false, results: [], error: `HTTP ${response.status}` };
         }
         
         const data = await response.json();
+        console.info('[Gemini] Resposta recebida:', JSON.stringify(data).substring(0, 300));
+        
         if (!data.candidates || data.candidates.length === 0) {
-            if (isSemanticQuery) return [];
-            return lookupSource.filter(c => c.score >= 70).slice(0, 5);
+            console.warn('[Gemini] Nenhum candidato na resposta da API');
+            return { success: false, results: [], error: 'No candidates' };
         }
         
         let rawText = data.candidates[0].content.parts[0].text.trim();
+        console.info('[Gemini] Texto bruto da IA:', rawText.substring(0, 500));
+        
         if (rawText.startsWith('```')) {
             rawText = rawText.replace(/^```(json)?\n?/, '').replace(/\n?```$/, '').trim();
         }
         
+        // Extração robusta: pega tudo entre [ e ] mesmo se tiver lixo ao redor
+        const bracketMatch = rawText.match(/\[[\s\S]*\]/);
+        if (bracketMatch) {
+            rawText = bracketMatch[0];
+        }
+        
         const geminiResults = JSON.parse(rawText);
         
-        // If Gemini explicitly returned empty array, respect that decision
+        // Se a IA retornou lista vazia intencionalmente
         if (!Array.isArray(geminiResults) || geminiResults.length === 0) {
-            console.info('Gemini retornou lista vazia — nenhum resultado relevante encontrado.');
-            return [];
+            console.info('[Gemini] IA retornou lista vazia — nenhum resultado relevante na visão da IA.');
+            return { success: true, results: [], error: null };  // success=true porque a IA RESPONDEU, só não achou nada
         }
+        
+        console.info(`[Gemini] IA retornou ${geminiResults.length} resultados:`, geminiResults);
         
         const finalResults = [];
         for (const g of geminiResults) {
-            // Busca blindada: Prioriza ID, mas aceita nome exato ou normalizado caso a IA erre o formato
+            // Busca blindada: Prioriza ID, depois nome exato, depois normalizado
             const original = lookupSource.find(c => 
                 (g.id !== undefined && c.member.id === g.id) || 
                 (g.nome && (c.member.nome === g.nome || c.member.empresa === g.nome)) ||
@@ -720,17 +742,15 @@ async function callGeminiAPI(prompt, lookupSource, isSemanticQuery = false) {
             
             if (original) {
                 finalResults.push({ member: original.member, score: g.score, reason: g.reason });
+                console.info(`[Gemini] Membro encontrado: ${original.member.nome} (score: ${g.score})`);
+            } else {
+                console.warn(`[Gemini] Membro NÃO encontrado no banco: id=${g.id}, nome=${g.nome}`);
             }
         }
-        return finalResults.sort((a,b) => b.score - a.score).slice(0, 5);
+        return { success: true, results: finalResults.sort((a,b) => b.score - a.score).slice(0, 5), error: null };
     } catch(e) {
-        console.error("Gemini Catch Error:", e);
-        // For semantic queries: NEVER return unfiltered results
-        if (isSemanticQuery) {
-            console.warn('Erro no Gemini em busca semântica — retornando vazio para evitar falsos positivos.');
-            return [];
-        }
-        return lookupSource.filter(c => c.score >= 70).slice(0, 5);
+        console.error("[Gemini] Catch Error:", e.message || e);
+        return { success: false, results: [], error: e.message || 'Unknown error' };
     }
 }
 
@@ -752,44 +772,42 @@ async function doSearch() {
 
     try {
         membersData = await fetchData();
+        console.info(`[Search] ${membersData.length} membros carregados. Buscando: "${query}"`);
         
-        let results = searchMembers(query);
+        // STEP 1: Busca local (sempre roda primeiro como backup)
+        let localResults = searchMembers(query);
+        console.info(`[Search] Busca local encontrou ${localResults.length} candidatos`);
         
-        // Determine if this is a natural language query
-        // Modificado a pedido do usuário: ativar Inteligência Artificial a partir de 1 palavra
-        const queryWordCount = query.split(/\s+/).filter(w => w.length > 1).length;
-        const isNaturalLanguage = queryWordCount >= 1;
+        // STEP 2: Busca por nome exato — se encontrou, retorna direto sem IA
+        if (localResults.length > 0 && localResults[0].score === 100) {
+            console.info('[Search] Match exato por nome/empresa — usando direto.');
+            hide();
+            dom.resultsBadge.textContent = `${localResults.length} resultado${localResults.length > 1 ? 's' : ''}`;
+            dom.resultsTitle.textContent = 'Correspondência exata';
+            dom.resultsList.innerHTML = localResults.map(r => renderResultCard(r, query)).join('');
+            dom.resultsWrap.style.display = 'block';
+            return;
+        }
         
-        if (isNaturalLanguage) {
-            // NATURAL LANGUAGE QUERY → always use full semantic search with Gemini
-            // This ensures that phrases like "quero parceiros para comida e bebida" are
-            // properly interpreted by AI, not confused with keyword/name matching
-            console.info(`Linguagem natural detectada (${queryWordCount} palavras) — enviando todos os membros ao Gemini para busca semântica.`);
-            const aiResults = await fullSemanticSearch(query, membersData);
-            if (aiResults.length > 0) {
-                results = aiResults;
+        // STEP 3: Tenta IA Gemini (SEMPRE, para qualquer busca)
+        let results = [];
+        const geminiAvailable = GEMINI_API_KEY && GEMINI_API_KEY !== 'SUA_CHAVE_AQUI' && GEMINI_API_KEY.length >= 10;
+        
+        if (geminiAvailable) {
+            console.info('[Search] Gemini disponível — enviando busca semântica completa...');
+            const aiResponse = await fullSemanticSearch(query, membersData);
+            
+            if (aiResponse.length > 0) {
+                results = aiResponse;
+                console.info(`[Search] IA retornou ${results.length} resultados relevantes.`);
             } else {
-                // AI found nothing relevant — DO NOT fall back to local results
-                // Local results for natural language queries are unreliable and cause false positives
-                console.warn('Gemini não encontrou resultados relevantes para busca em linguagem natural. NÃO usando fallback local.');
-                results = [];
-            }
-        } else if (results.length > 0 && results[0].score === 100) {
-            // Short query with exact name/company match — use directly (no AI needed)
-            console.info('Busca direta por nome/empresa — IA desnecessária.');
-        } else if (results.length < 3) {
-            // Short query with few local results — use full semantic search
-            console.info(`Poucos resultados locais (${results.length}) — ativando busca semântica completa.`);
-            const aiResults = await fullSemanticSearch(query, membersData);
-            if (aiResults.length > 0) {
-                results = aiResults;
-            } else if (results.length > 0) {
-                results = await analyzeWithGemini(query, results, false);
+                console.warn('[Search] IA retornou vazio. Usando busca local como fallback inteligente.');
+                // Fallback: usa resultados locais se existem (com score >= 70)
+                results = localResults;
             }
         } else {
-            // Short keyword query with enough local candidates — let Gemini filter
-            console.info(`Busca local encontrou ${results.length} candidatos — enviando ao Gemini para filtrar.`);
-            results = await analyzeWithGemini(query, results, false);
+            console.info('[Search] Gemini não configurado — usando busca local.');
+            results = localResults;
         }
         
         hide();
