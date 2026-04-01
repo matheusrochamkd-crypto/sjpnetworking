@@ -596,9 +596,9 @@ function escHtml(str) {
 // Estado da IA — rastreado para informar o usuário
 let lastAIStatus = { success: false, error: null, model: null };
 
-// Verifica se a chave API Grok está configurada
+// A verificação de chave é feita no servidor seguro (Netlify Functions)
 function isAIConfigured() {
-    return GROK_API_KEY && GROK_API_KEY.length >= 10;
+    return true; // Proxy backend ativado
 }
 
 // Gera o banner de erro da IA visível para o usuário
@@ -683,16 +683,15 @@ async function callGrokAPI(systemPrompt, userPrompt, lookupSource) {
     if (!isAIConfigured()) {
         return { success: false, results: [], error: 'API key não configurada' };
     }
-    
-    const model = GROK_MODEL || 'grok-4.1-fast';
+    // O modelo fica definido no front ou no back, aqui disparamos o proxy
+    const model = (typeof GROK_MODEL !== 'undefined' && GROK_MODEL) ? GROK_MODEL : 'grok-4-1-fast-non-reasoning';
     
     try {
-        console.info(`[Grok] Enviando requisição para ${model}...`);
-        const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        console.info(`[Netlify/Grok] Enviando requisição segura para proxy backend...`);
+        const response = await fetch('/.netlify/functions/grok', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${GROK_API_KEY}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 model: model,
