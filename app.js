@@ -126,12 +126,13 @@ const synonymMap = {
     'redes sociais': ['social media','redes sociais','instagram','conteudo','postagem','stories','reels'],
     
     // Technology — each sub-niche is separate
-    'tecnologia': ['tecnologia','ti','tech','desenvolvimento','programacao'],
-    'computador': ['informatica','computador','notebook','manutencao','reparo','assistencia tecnica','hardware','pc'],
+    'tecnologia': ['tecnologia','ti','tech','desenvolvimento','programacao','informatica','computador','notebook','assistencia'],
+    'computador': ['informatica','computador','notebook','manutencao','reparo','assistencia tecnica','hardware','pc','celular','smart','ti'],
+    'celular': ['celular','smartphone','iphone','apple','assistencia tecnica','capinha','pelicula','computador','notebook'],
     'software': ['software','softwares','erp','aplicativo','app','fabrica de software','programacao','sistema','sistemas'],
     'ia': ['inteligencia artificial','ia','chatbot','automacao','bot','whatsapp'],
     'inteligencia artificial': ['inteligencia artificial','ia','chatbot','automacao','bot'],
-    'informatica': ['informatica','computador','notebook','manutencao','reparo','assistencia tecnica','hardware','pc','ti'],
+    'informatica': ['informatica','computador','notebook','manutencao','reparo','assistencia tecnica','hardware','pc','ti','celular'],
     'chatbot': ['chatbot','bot','whatsapp','atendimento','ia','inteligencia artificial','tecnologia','software','automacao'],
     'automacao': ['automacao','processos','chatbot','bot','tecnologia','software','sistemas'],
     'whatsapp': ['whatsapp','chatbot','bot','atendimento','automacao'],
@@ -648,16 +649,14 @@ async function analyzeWithAI(query, candidates) {
         descricao: (c.member.descricao || '').substring(0, 200)
     }));
     
-    const systemPrompt = `Você é o motor de busca inteligente do 'SJP Networking', um grupo de empreendedores de São José dos Pinhais.
-Seu trabalho é REORDENAR e FILTRAR candidatos com base na INTENÇÃO REAL do usuário.
+    const systemPrompt = `Você é o motor de busca inteligente do 'SJP Networking', de São José dos Pinhais.
+Seu trabalho é REORDENAR e SELECIONAR os candidatos com base na INTENÇÃO REAL do usuário.
 
-REGRAS OBRIGATÓRIAS:
-1. INTERPRETE A INTENÇÃO REAL: "chatbot com IA" = empresas de IA, fábricas de software, desenvolvedores. NÃO é padaria, confeitaria, consultoria genérica.
-2. O RAMO e/ou DESCRIÇÃO do candidato devem ser DIRETAMENTE relacionados à necessidade. Se o ramo é de outro setor, ELIMINE.
-3. COINCIDÊNCIA DE NOME NÃO É RELEVÂNCIA. "ControlG" NÃO é relevante para "controle de portão".
-4. ZERO FALSOS POSITIVOS: É MELHOR retornar lista vazia [] do que um resultado errado.
-5. MÁXIMO 5 resultados. Se só 1-2 são relevantes, retorne apenas esses.
-6. Score de 70 a 100. Justificativa curta (máx 120 chars).
+REGRAS:
+1. FAÇA CONEXÕES LÓGICAS DE SETOR: Se o usuário quer "comprar computador", empresas de "Informática", "TI" ou "Assistência Técnica" são EXTREMAMENTE relevantes e DEVEM ser incluídas, mesmo que não tenham escrito a palavra exata 'computador' nela.
+2. MÁXIMO 8 resultados. Tente SEMPRE trazer uma OPÇÃO VARIADA de profissionais do setor correto (Traga 3 a 5 opções se tiverem relação direta ou indireta).
+3. EXCLUA ABERRAÇÕES (Fake Positives): Coincidência de nome ou verbo não vale (ex: padaria não vende celular). Elimine se for um ramo totalmente estranho.
+4. Score de 70 a 100. Justificativa curta (máx 120 chars) explicando por que o cara é útil.
 
 Retorne APENAS um array JSON válido:
 [{"id":1,"score":95,"reason":"Justificativa direta."}]`;
