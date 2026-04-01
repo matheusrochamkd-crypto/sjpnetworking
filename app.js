@@ -657,13 +657,17 @@ async function analyzeWithAI(query, candidates) {
 Seu trabalho é REORDENAR e SELECIONAR os candidatos com base na INTENÇÃO REAL do usuário.
 
 REGRAS:
-1. FAÇA CONEXÕES LÓGICAS DE SETOR: Se o usuário quer "comprar computador", empresas de "Informática", "TI" ou "Assistência Técnica" são EXTREMAMENTE relevantes e DEVEM ser incluídas, mesmo que não tenham escrito a palavra exata 'computador'.
-2. PROIBIDAMENTE RETORNAR APENAS 1 RESULTADO SE HOUVER MAIS DO SETOR. Entregue um MÍNIMO de 3 e MÁXIMO de 8 resultados. Se o candidato ideal não existir em grandes quantidades, inclua profissionais de segunda linha do segmento relacionado (ex: pediu formatação, traga quem vende celular ou eletrônico para compor a vitrine da busca).
-3. EXCLUA ABERRAÇÕES COMPLETAS: Coincidência de nome ou verbo não vale (ex: padaria não vende celular). Elimine quem for de um ramo alienígena à pesquisa.
-4. Score de 70 a 100 (ajuste por relevância). Justificativa curta (máx 120 chars) explicando por que o cara é útil.
+1. FAÇA CONEXÕES LÓGICAS DE SETOR: Se o usuário quer "comprar computador", empresas de "Informática", "TI" ou "Assistência Técnica" são relevantes.
+2. REGRA ABSOLUTA: NUNCA, SOB HIPÓTESE ALGUMA, RETORNE APENAS 1 RESULTADO se sua lista de candidatos tiver opções. Entregue SEMPRE de 3 a 5 resultados. Se só 1 candidato for perfeito, você DEVE puxar outros 2 candidatos do mesmo setor (ex: outras empresas de informática) e usar a 'reason' para dizer: 'Alternativa no ramo de TI/Informática'.
+3. EXCLUA ABERRAÇÕES COMPLETAS: Coincidência de verbo isolado (ex: padaria não vende celular). Elimine quem for de um ramo totalmente alienígena.
+4. Score de 70 a 100 (ajuste por relevância). Justificativa curta (máx 120 chars) explicando por que a pessoa é útil.
 
-Retorne APENAS um array JSON válido:
-[{"id":1,"score":95,"reason":"Justificativa direta."}]`;
+Retorne EXATAMENTE este objeto JSON:
+{
+  "results": [
+    {"id": 1, "score": 95, "reason": "Justificativa curta."}
+  ]
+}`;
 
     const userPrompt = `Busca do usuário: "${query}"
 
