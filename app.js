@@ -842,9 +842,10 @@ async function doSearch() {
         if (localResults.length > 0 && localResults[0].score === 100) {
             console.info('[Search] Match exato por nome/empresa — usando direto.');
             hide();
-            dom.resultsBadge.textContent = `${localResults.length} resultado${localResults.length > 1 ? 's' : ''}`;
+            const topMatchResults = localResults.slice(0, 10);
+            dom.resultsBadge.textContent = `${topMatchResults.length} resultado${topMatchResults.length > 1 ? 's' : ''}`;
             dom.resultsTitle.textContent = 'Correspondência exata';
-            dom.resultsList.innerHTML = localResults.map(r => renderResultCard(r, query)).join('');
+            dom.resultsList.innerHTML = topMatchResults.map(r => renderResultCard(r, query)).join('');
             dom.resultsWrap.style.display = 'block';
             return;
         }
