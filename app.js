@@ -308,17 +308,31 @@ function expandQuery(query) {
     const meaningfulTokens = tokens.filter(t => !stopWords.has(t));
     meaningfulTokens.forEach(t => expanded.add(t));
     
+    // For synonym expansion, filter OUT bigrams that contain any stop word
+    // This prevents "com ia" from fuzzy-matching "comida" and pulling in food results
+    const expansionTokens = meaningfulTokens.filter(t => {
+        if (!t.includes(' ')) return true; // single words always pass
+        // Bigram: check if ANY word in the bigram is a stop word
+        const words = t.split(' ');
+        return words.every(w => !stopWords.has(w) && w.length > 1);
+    });
+    
     for (const [key, synonyms] of Object.entries(synonymMap)) {
         const normKey = normalize(key);
         // Also normalize the synonyms for checking
         const normSyns = synonyms.map(s => normalize(s));
         
-        for (const tok of meaningfulTokens) {
+        for (const tok of expansionTokens) {
             let matches = false;
+            const isBigram = tok.includes(' ');
             
             // Check if token matches the KEY
             if (tok.length <= 3) {
                 matches = (normKey === tok);
+            } else if (isBigram) {
+                // Bigrams: ONLY exact/regex match, NO fuzzy (prevents "com ia" → "comida")
+                const regex = new RegExp('\\b' + tok + '\\b');
+                matches = regex.test(normKey) || normKey === tok;
             } else {
                 // Strict word match for technical terms to avoid "inteligencia" matching "inteligencia artificial"
                 const regex = new RegExp('\\b' + tok + '\\b');
@@ -330,6 +344,12 @@ function expandQuery(query) {
                 for (const syn of normSyns) {
                     if (tok.length <= 3) {
                         if (syn === tok) { matches = true; break; }
+                    } else if (isBigram) {
+                        // Bigrams: ONLY exact/regex match against synonyms too
+                        const regex = new RegExp('\\b' + tok + '\\b');
+                        if (regex.test(syn) || syn === tok) {
+                            matches = true; break;
+                        }
                     } else {
                         const regex = new RegExp('\\b' + tok + '\\b');
                         if (regex.test(syn) || isFuzzyMatch(tok, syn)) {
@@ -682,9 +702,10 @@ Retorne APENAS JSON válido (use o 'id' correspondente ao membro):
 // Shared Gemini API caller
 // Returns: { success: boolean, results: array }
 // When success=false, the caller decides how to handle fallback
-async function callGeminiAPI(prompt, lookupSource) {
+async function callGeminiAPI(prompt, lookupSource, retryCount = 0) {
+    const MAX_RETRIES = 2;
     try {
-        console.info('[Gemini] Enviando requisição para a API...');
+        console.info(`[Gemini] Enviando requisição para a API... (tentativa ${retryCount + 1})`);
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -697,6 +718,25 @@ async function callGeminiAPI(prompt, lookupSource) {
         if (!response.ok) {
             const errText = await response.text();
             console.error("[Gemini] API HTTP Error:", response.status, errText);
+            
+            // Retry automático para rate limits (429)
+            if (response.status === 429 && retryCount < MAX_RETRIES) {
+                // Extrai tempo de retry da resposta, ou usa default de 5s
+                let retryDelay = 5000;
+                try {
+                    const errJson = JSON.parse(errText);
+                    const retryInfo = errJson.error?.details?.find(d => d['@type']?.includes('RetryInfo'));
+                    if (retryInfo?.retryDelay) {
+                        const seconds = parseInt(retryInfo.retryDelay);
+                        if (seconds > 0 && seconds <= 60) retryDelay = (seconds + 2) * 1000;
+                    }
+                } catch(e) { /* usa default */ }
+                
+                console.info(`[Gemini] Rate limit — aguardando ${retryDelay/1000}s antes de tentar novamente...`);
+                await sleep(retryDelay);
+                return callGeminiAPI(prompt, lookupSource, retryCount + 1);
+            }
+            
             return { success: false, results: [], error: `HTTP ${response.status}` };
         }
         
@@ -731,8 +771,15 @@ async function callGeminiAPI(prompt, lookupSource) {
         
         console.info(`[Gemini] IA retornou ${geminiResults.length} resultados:`, geminiResults);
         
+        const MIN_AI_SCORE = 60; // Score mínimo aceitável da IA
         const finalResults = [];
         for (const g of geminiResults) {
+            // FILTRO: ignorar resultados com score abaixo do mínimo
+            if (g.score !== undefined && g.score < MIN_AI_SCORE) {
+                console.info(`[Gemini] Ignorando membro id=${g.id} — score ${g.score} abaixo do mínimo (${MIN_AI_SCORE})`);
+                continue;
+            }
+            
             // Busca blindada: Prioriza ID, depois nome exato, depois normalizado
             const original = lookupSource.find(c => 
                 (g.id !== undefined && c.member.id === g.id) || 
@@ -791,6 +838,7 @@ async function doSearch() {
         
         // STEP 3: Tenta IA Gemini (SEMPRE, para qualquer busca)
         let results = [];
+        let usedAI = false;
         const geminiAvailable = GEMINI_API_KEY && GEMINI_API_KEY !== 'SUA_CHAVE_AQUI' && GEMINI_API_KEY.length >= 10;
         
         if (geminiAvailable) {
@@ -798,8 +846,22 @@ async function doSearch() {
             const aiResponse = await fullSemanticSearch(query, membersData);
             
             if (aiResponse.length > 0) {
-                results = aiResponse;
-                console.info(`[Search] IA retornou ${results.length} resultados relevantes.`);
+                // Merge inteligente: combina resultados da IA com busca local
+                // Adiciona membros da busca local que a IA pode ter perdido
+                const aiIds = new Set(aiResponse.map(r => r.member.id));
+                const mergedResults = [...aiResponse];
+                
+                // Busca local com score alto (>= 80) complementa a IA
+                for (const local of localResults) {
+                    if (!aiIds.has(local.member.id) && local.score >= 80) {
+                        mergedResults.push(local);
+                        console.info(`[Search] Complementando IA com resultado local: ${local.member.nome} (score local: ${local.score})`);
+                    }
+                }
+                
+                results = mergedResults.sort((a, b) => b.score - a.score).slice(0, 10);
+                usedAI = true;
+                console.info(`[Search] IA retornou ${aiResponse.length} + ${mergedResults.length - aiResponse.length} locais = ${results.length} resultados finais.`);
             } else {
                 console.warn('[Search] IA retornou vazio. Usando busca local como fallback inteligente.');
                 // Fallback: usa resultados locais se existem (com score >= 70)
@@ -818,7 +880,7 @@ async function doSearch() {
         }
 
         dom.resultsBadge.textContent = `${results.length} resultado${results.length > 1 ? 's' : ''}`;
-        dom.resultsTitle.textContent = 'Especialistas analisados por IA';
+        dom.resultsTitle.textContent = usedAI ? 'Especialistas analisados por IA' : 'Especialistas encontrados';
         dom.resultsList.innerHTML = results.map(r => renderResultCard(r, query)).join('');
         dom.resultsWrap.style.display = 'block';
 
