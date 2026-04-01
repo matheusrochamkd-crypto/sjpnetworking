@@ -298,7 +298,8 @@ const stopWords = new Set([
     'bem','mal','bom','boa','ruim','melhor','pior','novo','nova',
     'grande','pequeno','primeiro','ultimo','gostaria','favor','obrigado',
     'nao','sim','talvez','so','apenas','mesmo','assim','dessa','desse',
-    'nessa','nesse','numa','duma','pela','pelo','nas','nos'
+    'nessa','nesse','numa','duma','pela','pelo','nas','nos',
+    'comprar','compras','compra','compro','vender','ver','achar','encontrar'
 ]);
 
 function expandQuery(query) {
@@ -524,7 +525,10 @@ function searchMembers(query) {
         .filter(s => s.score >= 70)
         .sort((a, b) => b.score - a.score);
     
-    return sorted.slice(0, 30); // Envia os t0p 30 (ampliado) candidatos para filtro profundo no Grok
+    // Aumentamos a captação local de 30 para 60 candidatos.
+    // Isso dá margem GIGANTESCA para a IA receber de tudo e selecionar os 8 melhores,
+    // garantindo que não deixamos ninguém de fora antes mesmo da IA ver.
+    return sorted.slice(0, 60); 
 }
 
 // ========== RENDER HELPERS ==========
@@ -653,10 +657,10 @@ async function analyzeWithAI(query, candidates) {
 Seu trabalho é REORDENAR e SELECIONAR os candidatos com base na INTENÇÃO REAL do usuário.
 
 REGRAS:
-1. FAÇA CONEXÕES LÓGICAS DE SETOR: Se o usuário quer "comprar computador", empresas de "Informática", "TI" ou "Assistência Técnica" são EXTREMAMENTE relevantes e DEVEM ser incluídas, mesmo que não tenham escrito a palavra exata 'computador' nela.
-2. MÁXIMO 8 resultados. Tente SEMPRE trazer uma OPÇÃO VARIADA de profissionais do setor correto (Traga 3 a 5 opções se tiverem relação direta ou indireta).
-3. EXCLUA ABERRAÇÕES (Fake Positives): Coincidência de nome ou verbo não vale (ex: padaria não vende celular). Elimine se for um ramo totalmente estranho.
-4. Score de 70 a 100. Justificativa curta (máx 120 chars) explicando por que o cara é útil.
+1. FAÇA CONEXÕES LÓGICAS DE SETOR: Se o usuário quer "comprar computador", empresas de "Informática", "TI" ou "Assistência Técnica" são EXTREMAMENTE relevantes e DEVEM ser incluídas, mesmo que não tenham escrito a palavra exata 'computador'.
+2. PROIBIDAMENTE RETORNAR APENAS 1 RESULTADO SE HOUVER MAIS DO SETOR. Entregue um MÍNIMO de 3 e MÁXIMO de 8 resultados. Se o candidato ideal não existir em grandes quantidades, inclua profissionais de segunda linha do segmento relacionado (ex: pediu formatação, traga quem vende celular ou eletrônico para compor a vitrine da busca).
+3. EXCLUA ABERRAÇÕES COMPLETAS: Coincidência de nome ou verbo não vale (ex: padaria não vende celular). Elimine quem for de um ramo alienígena à pesquisa.
+4. Score de 70 a 100 (ajuste por relevância). Justificativa curta (máx 120 chars) explicando por que o cara é útil.
 
 Retorne APENAS um array JSON válido:
 [{"id":1,"score":95,"reason":"Justificativa direta."}]`;
