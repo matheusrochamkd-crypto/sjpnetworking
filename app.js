@@ -918,10 +918,13 @@ async function doSearch() {
             resultsHTML += renderAIErrorBanner(aiError);
         }
         
+        // Limita os resultados a no máximo 10 cartões para não poluir a tela do usuário final
+        const finalResults = results.slice(0, 10);
+
         // Cards de resultados
-        resultsHTML += results.map(r => renderResultCard(r, query)).join('');
+        resultsHTML += finalResults.map(r => renderResultCard(r, query)).join('');
         
-        dom.resultsBadge.textContent = `${results.length} resultado${results.length > 1 ? 's' : ''}`;
+        dom.resultsBadge.textContent = `${finalResults.length} resultado${finalResults.length > 1 ? 's' : ''}`;
         dom.resultsTitle.innerHTML = (usedAI ? 'Especialistas analisados por IA ' : 'Especialistas encontrados ') + renderAIStatusBadge(usedAI);
         dom.resultsList.innerHTML = resultsHTML;
         dom.resultsWrap.style.display = 'block';
