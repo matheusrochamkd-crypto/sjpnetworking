@@ -1,0 +1,12 @@
+﻿
+--- Testando Busca: "limpar nome" ---
+Termos expandidos: limpar, nome
+Encontrados pelo pre-filtro (score > 0): 0
+
+--- Testando Busca: "brownie" ---
+Termos expandidos: brownie
+Encontrados pelo pre-filtro (score > 0): 0
+
+--- Testando Busca: "cilios" ---
+Termos expandidos: cilios
+Encontrados pelo pre-filtro (score > 0): 0

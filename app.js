@@ -437,18 +437,17 @@ function calcCompatibility(member, expandedTerms) {
     if (ramoHits + descHits + infoHits + empHits === 0) return 0;
     
     // BASE SCORE: determined by which field has the best match
-    // Ramo is the strongest signal — it's the member's declared business area
-    // Members WITHOUT a ramo match get score < 70 (filtered out)
+    // Agora aceitamos termos que surgem apenas na Descrição/Info (score 70+) 
+    // deixando a xAI decidir a verdadeira relevância.
     let base = 0;
     if (ramoHits >= 3) base = 92;
     else if (ramoHits >= 2) base = 87;
     else if (ramoHits >= 1) base = 82;
-    else if (empHits >= 1 && (ramoHits >= 1 || descHits >= 2)) base = 78; // Company name + ramo/description corroboration
+    else if (empHits >= 1) base = 78;
+    else if (descHits >= 2) base = 75;
+    else if (descHits >= 1 || infoHits >= 1) base = 70;
     else {
-        // NO ramo match = likely irrelevant
-        // Company-only matches are NOT enough — they often are false positives
-        // (e.g., "ControlG" matching "controle")
-        // Description/info-only matches are also NOT enough to qualify
+        // Zero matches literais encontrados em nenhum lugar do card
         return 0;
     }
     
@@ -524,7 +523,7 @@ function searchMembers(query) {
         .filter(s => s.score >= 70)
         .sort((a, b) => b.score - a.score);
     
-    return sorted.slice(0, 10); // Send up to 10 candidates for Grok to filter
+    return sorted.slice(0, 30); // Envia os t0p 30 (ampliado) candidatos para filtro profundo no Grok
 }
 
 // ========== RENDER HELPERS ==========
@@ -845,17 +844,10 @@ async function doSearch() {
         if (isAIConfigured()) {
             console.info('[Search] Grok configurado — enviando candidatos para análise IA...');
             
-            // Envia candidatos locais para a IA filtrar/reordenar
-            // Se a busca local encontrou resultados, envia esses
-            // Se não encontrou, envia os top 20 membros por ramo relevante
+            // Envia até 30 candidatos que bateram nas palavras-chave para o Grok reordenar
+            // Se localResults for zero (nenhum termo encontrou similaridade local = 0 reais matches), 
+            // analyzeWithAI retorna array vazio direto sem processamento e aciona a UI vazia
             let candidatesForAI = localResults;
-            if (candidatesForAI.length === 0) {
-                // Sem resultados locais — manda top 20 membros com dados mais completos para IA avaliar
-                candidatesForAI = membersData
-                    .filter(m => m.ramo && m.ramo.length > 2)
-                    .slice(0, 30)
-                    .map(m => ({ member: m, score: 0 }));
-            }
             
             const aiResult = await analyzeWithAI(query, candidatesForAI);
             usedAI = aiResult.aiUsed;
