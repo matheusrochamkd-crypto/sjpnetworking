@@ -683,7 +683,8 @@ async function callGrokAPI(systemPrompt, userPrompt, lookupSource) {
         return { success: false, results: [], error: 'API key não configurada' };
     }
     // O modelo fica definido no front ou no back, aqui disparamos o proxy
-    const model = (typeof GROK_MODEL !== 'undefined' && GROK_MODEL) ? GROK_MODEL : 'grok-4-1-fast-non-reasoning';
+    // O modelo oficial e atualizado da xAI (Grok) é o grok-2-latest
+    const model = (typeof GROK_MODEL !== 'undefined' && GROK_MODEL) ? GROK_MODEL : 'grok-2-latest';
     
     try {
         console.info(`[Netlify/Grok] Enviando requisição segura para proxy backend...`);
@@ -708,14 +709,19 @@ async function callGrokAPI(systemPrompt, userPrompt, lookupSource) {
             console.error(`[Grok] HTTP Error ${response.status}:`, errText.substring(0, 300));
             
             let errorDetail = `HTTP ${response.status}`;
-            if (response.status === 401) errorDetail = 'Chave API inválida ou expirada';
-            else if (response.status === 403) errorDetail = 'Acesso negado à API';
-            else if (response.status === 429) errorDetail = 'Rate limit — tente novamente em alguns segundos';
-            else if (response.status === 400) {
+            if (response.status === 429) errorDetail = 'Rate limit — tente novamente em alguns segundos';
+            
+            if (response.status >= 400) {
                 try {
                     const errJson = JSON.parse(errText);
-                    errorDetail = errJson.error?.message || `Erro 400: ${errText.substring(0, 100)}`;
-                } catch(e) { errorDetail = 'Requisição inválida'; }
+                    if (typeof errJson.error === 'string') {
+                        errorDetail = errJson.error;
+                    } else if (errJson.error && errJson.error.message) {
+                        errorDetail = errJson.error.message;
+                    } else {
+                        errorDetail = `Erro ${response.status}: ${errText.substring(0, 100)}`;
+                    }
+                } catch(e) { errorDetail = `Erro ${response.status}: falha no servidor.`; }
             }
             
             return { success: false, results: [], error: errorDetail };
