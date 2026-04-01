@@ -683,8 +683,8 @@ async function callGrokAPI(systemPrompt, userPrompt, lookupSource) {
         return { success: false, results: [], error: 'API key não configurada' };
     }
     // O modelo fica definido no front ou no back, aqui disparamos o proxy
-    // O modelo oficial e atualizado da xAI (Grok) é o grok-2-latest
-    const model = (typeof GROK_MODEL !== 'undefined' && GROK_MODEL) ? GROK_MODEL : 'grok-2-latest';
+    // O modelo oficial e atualizado da xAI (Grok) é o grok-4.1-fast-non-reasoning
+    const model = (typeof GROK_MODEL !== 'undefined' && GROK_MODEL) ? GROK_MODEL : 'grok-4.1-fast-non-reasoning';
     
     try {
         console.info(`[Netlify/Grok] Enviando requisição segura para proxy backend...`);
