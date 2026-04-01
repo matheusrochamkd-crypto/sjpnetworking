@@ -5,8 +5,8 @@
 
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1woRI4hp-whQJIbS-8vhAtj7L-scfBUvNGTJ5pBsyahI/export?format=csv';
 
-// GEMINI_API_KEY é carregada via config.js (arquivo gitignored, NÃO commitar)
-// Se GEMINI_API_KEY não estiver definida, o sistema funciona com buscas locais.
+// GROK_API_KEY é carregada via config.js (arquivo gitignored, NÃO commitar)
+// Se GROK_API_KEY não estiver definida, o sistema funciona com buscas locais.
 
 // Expected columns (0-indexed after timestamp)
 const COL = { NOME: 1, EMPRESA: 2, RAMO: 3, DESC: 4, WHATSAPP: 5, INSTAGRAM: 6, INFO: 7 };
@@ -524,7 +524,7 @@ function searchMembers(query) {
         .filter(s => s.score >= 70)
         .sort((a, b) => b.score - a.score);
     
-    return sorted.slice(0, 10); // Send up to 10 candidates for Gemini to filter
+    return sorted.slice(0, 10); // Send up to 10 candidates for Grok to filter
 }
 
 // ========== RENDER HELPERS ==========
@@ -591,26 +591,54 @@ function escHtml(str) {
     return d.innerHTML;
 }
 
-// ========== GEMINI AI INTEGRATION ==========
+// ========== GROK (xAI) AI INTEGRATION ==========
 
-// Calls Gemini to filter pre-selected candidates
-async function analyzeWithGemini(query, candidates, isNaturalLang = false) {
-    if(candidates.length === 0) return candidates;
-    
-    // Se não há chave API configurada, pula a análise Gemini
-    if (!GEMINI_API_KEY || GEMINI_API_KEY === 'SUA_CHAVE_AQUI' || GEMINI_API_KEY.length < 10) {
-        console.info('Gemini desativado — usando busca local. Configure sua chave em config.js');
-        // Para buscas em linguagem natural SEM IA, não retorne nada (evita falsos positivos)
-        if (isNaturalLang) {
-            console.warn('Busca em linguagem natural requer IA. Sem chave API, retornando vazio.');
-            return [];
-        }
-        if (candidates.length > 1) {
-            const topScore = candidates[0].score;
-            const meaningful = candidates.filter(s => s.score >= topScore - 5);
-            if (meaningful.length <= 3) return meaningful;
-        }
-        return candidates.slice(0, 5);
+// Estado da IA — rastreado para informar o usuário
+let lastAIStatus = { success: false, error: null, model: null };
+
+// Verifica se a chave API Grok está configurada
+function isAIConfigured() {
+    return GROK_API_KEY && GROK_API_KEY.length >= 10;
+}
+
+// Gera o banner de erro da IA visível para o usuário
+function renderAIErrorBanner(errorMsg) {
+    return `
+        <div class="ai-error-banner" style="
+            background: linear-gradient(135deg, rgba(239,68,68,0.08), rgba(239,68,68,0.03));
+            border: 1px solid rgba(239,68,68,0.2);
+            border-radius: 1rem;
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.85rem;
+            color: #fca5a5;
+            backdrop-filter: blur(10px);
+        ">
+            <span style="font-size:1.3rem;">⚠️</span>
+            <div>
+                <strong style="color:#f87171;">IA Grok indisponível</strong><br>
+                <span style="color:#d4d4d8; font-size:0.8rem;">${escHtml(errorMsg)} — Exibindo resultados da busca local (podem ser menos precisos).</span>
+            </div>
+        </div>
+    `;
+}
+
+// Gera o badge de status da IA
+function renderAIStatusBadge(usedAI) {
+    if (usedAI) {
+        return '<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:#34d399;padding:2px 10px;border-radius:9999px;font-size:0.7rem;font-weight:600;letter-spacing:0.05em;">✦ ANALISADO POR IA</span>';
+    }
+    return '<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);color:#fbbf24;padding:2px 10px;border-radius:9999px;font-size:0.7rem;font-weight:600;letter-spacing:0.05em;">⚡ BUSCA LOCAL</span>';
+}
+
+// Analisa candidatos pré-filtrados com Grok
+async function analyzeWithAI(query, candidates) {
+    if (candidates.length === 0) return { results: candidates, aiUsed: false, error: null };
+    if (!isAIConfigured()) {
+        return { results: candidates.slice(0, 5), aiUsed: false, error: 'Chave API Grok não configurada. Configure GROK_API_KEY em config.js.' };
     }
     
     const candData = candidates.map(c => ({
@@ -621,166 +649,141 @@ async function analyzeWithGemini(query, candidates, isNaturalLang = false) {
         descricao: (c.member.descricao || '').substring(0, 200)
     }));
     
-    const prompt = `Você é um FILTRO EXTREMAMENTE RIGOROSO de resultados do 'SJP Networking'.
-O usuário buscou: "${query}".
+    const systemPrompt = `Você é o motor de busca inteligente do 'SJP Networking', um grupo de empreendedores de São José dos Pinhais.
+Seu trabalho é REORDENAR e FILTRAR candidatos com base na INTENÇÃO REAL do usuário.
+
+REGRAS OBRIGATÓRIAS:
+1. INTERPRETE A INTENÇÃO REAL: "chatbot com IA" = empresas de IA, fábricas de software, desenvolvedores. NÃO é padaria, confeitaria, consultoria genérica.
+2. O RAMO e/ou DESCRIÇÃO do candidato devem ser DIRETAMENTE relacionados à necessidade. Se o ramo é de outro setor, ELIMINE.
+3. COINCIDÊNCIA DE NOME NÃO É RELEVÂNCIA. "ControlG" NÃO é relevante para "controle de portão".
+4. ZERO FALSOS POSITIVOS: É MELHOR retornar lista vazia [] do que um resultado errado.
+5. MÁXIMO 5 resultados. Se só 1-2 são relevantes, retorne apenas esses.
+6. Score de 70 a 100. Justificativa curta (máx 120 chars).
+
+Retorne APENAS um array JSON válido:
+[{"id":1,"score":95,"reason":"Justificativa direta."}]`;
+
+    const userPrompt = `Busca do usuário: "${query}"
 
 CANDIDATOS PRÉ-FILTRADOS:
-${JSON.stringify(candData)}
+${JSON.stringify(candData)}`;
 
-REGRAS OBRIGATÓRIAS — SIGA TODAS SEM EXCEÇÃO:
-1. INTERPRETE A INTENÇÃO REAL: Entenda o que o usuário REALMENTE precisa. Ex: "preciso de alguem para configurar controle portão" = automação, serralheria, portões eletrônicos, segurança eletrônica. NÃO é contabilidade, advocacia, marketing, etc.
-2. ANALISE O RAMO DE ATUAÇÃO: O ramo ("ramo") do candidato deve ser DIRETAMENTE relacionado à NECESSIDADE REAL do usuário. Se o ramo não resolve o problema do usuário, ELIMINE.
-3. COINCIDÊNCIA DE NOME NÃO É RELEVÂNCIA: Se o nome da empresa contém uma palavra da busca mas o RAMO não tem relação, ELIMINE. Ex: empresa "ControlG" NÃO é relevante para "controle de portão".
-4. ZERO TOLERÂNCIA A FALSOS POSITIVOS: É MELHOR retornar LISTA VAZIA do que retornar um resultado errado.
-5. MÁXIMO 5 resultados. Se só houver 1 ou 2 relevantes, retorne apenas esses.
-6. Se NENHUM candidato pode REALMENTE resolver a necessidade do usuário, retorne [].
-7. Score de 70 a 100. Justificativa curta (máx 120 chars).
-
-JSON VÁLIDO apenas (use o 'id' correspondente):
-[{"id":1,"score":95,"reason":"Justificativa direta."}]`;
-
-    const apiResult = await callGeminiAPI(prompt, candidates);
+    const apiResult = await callGrokAPI(systemPrompt, userPrompt, candidates);
     if (apiResult.success) {
-        return apiResult.results;
-    }
-    // API falhou — retorna candidatos locais como fallback
-    console.warn('[analyzeWithGemini] API falhou, usando candidatos locais.');
-    return candidates.slice(0, 5);
-}
-
-// Full semantic search: sends ALL members to Gemini when local search fails
-async function fullSemanticSearch(query, allMembers) {
-    if (!GEMINI_API_KEY || GEMINI_API_KEY === 'SUA_CHAVE_AQUI' || GEMINI_API_KEY.length < 10) {
-        console.info('Gemini desativado — busca semântica completa indisponível.');
-        return [];
+        lastAIStatus = { success: true, error: null, model: GROK_MODEL };
+        return { results: apiResult.results, aiUsed: true, error: null };
     }
     
-    // Compact data: send only essential fields to minimize token usage
-    const compactMembers = allMembers.map(m => ({
-        id: m.id,
-        nome: m.nome,
-        empresa: m.empresa,
-        ramo: m.ramo,
-        desc: (m.descricao || '').substring(0, 150)
-    }));
-    
-    const prompt = `Você é um BUSCADOR INTELIGENTE e RIGOROSO do 'SJP Networking', um grupo de empreendedores.
-O usuário está buscando: "${query}"
-
-ABAIXO está a lista COMPLETA de todos os membros do grupo. Seu trabalho é encontrar os membros cujo negócio ATENDE DIRETAMENTE à necessidade do usuário.
-
-MEMBROS DO GRUPO:
-${JSON.stringify(compactMembers)}
-
-REGRAS OBRIGATÓRIAS — SIGA TODAS SEM EXCEÇÃO:
-1. INTERPRETE A INTENÇÃO REAL: Entenda o que o usuário REALMENTE precisa.
-   - "preciso de alguem para configurar controle portão" = automação, serralheria, portões eletrônicos, segurança eletrônica, instalação.
-   - "ativação de comida e bebida no meu evento" = alimentação, buffet, gastronomia, bebidas, catering.
-   - "chatbot para whatsapp" ou "automação" = empresas de Inteligência Artificial (IA), fábricas de software, desenvolvedores, tecnologia da informação (TI).
-   - NÃO confunda palavras com nomes de empresa. "controle" na busca NÃO significa a empresa "ControlG".
-2. ANALISE O RAMO E DESCRIÇÃO: O ramo e/ou descrição do membro devem indicar que ele PODE RESOLVER o problema do usuário. Para buscas tecnológicas (ex: chatbot), desenvolvedores de software, startups de tech ou agências de IA SÃO os resultados corretos.
-3. COINCIDÊNCIA DE NOME NÃO É RELEVÂNCIA: Se o nome da empresa contém uma palavra da busca mas o RAMO/NEGÓCIO não tem relação, NÃO inclua.
-4. ZERO FALSOS POSITIVOS PARA OUTROS RAMOS: É MUITO MELHOR retornar uma LISTA VAZIA [] do que retornar um resultado que não resolve o problema. Na dúvida sobre a capacidade técnica, NÃO inclua.
-5. MÁXIMO 5 resultados. Se só 1 ou 2 são relevantes, retorne apenas esses.
-6. Se NENHUM membro pode REALMENTE atender à necessidade, retorne [].
-7. Score de 70 a 100. Justificativa curta e direta (máx 120 chars).
-
-Retorne APENAS JSON válido (use o 'id' correspondente ao membro):
-[{"id":1,"score":95,"reason":"Justificativa direta."}]`;
-
-    // Use allMembers as the lookup source
-    const fakeCandidates = allMembers.map(m => ({ member: m, score: 0 }));
-    const apiResult = await callGeminiAPI(prompt, fakeCandidates);
-    if (apiResult.success) {
-        return apiResult.results;
-    }
-    // API falhou — retorna vazio, o caller vai usar fallback local
-    console.warn('[fullSemanticSearch] API falhou.');
-    return [];
+    lastAIStatus = { success: false, error: apiResult.error, model: null };
+    return { results: candidates.slice(0, 5), aiUsed: false, error: apiResult.error };
 }
 
-// Shared Gemini API caller
-// Returns: { success: boolean, results: array }
-// When success=false, the caller decides how to handle fallback
-async function callGeminiAPI(prompt, lookupSource, retryCount = 0) {
-    const MAX_RETRIES = 2;
+// Chama a API do Grok (xAI) — formato OpenAI-compatible
+async function callGrokAPI(systemPrompt, userPrompt, lookupSource) {
+    if (!isAIConfigured()) {
+        return { success: false, results: [], error: 'API key não configurada' };
+    }
+    
+    const model = GROK_MODEL || 'grok-4.1-fast';
+    
     try {
-        console.info(`[Gemini] Enviando requisição para a API... (tentativa ${retryCount + 1})`);
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        console.info(`[Grok] Enviando requisição para ${model}...`);
+        const response = await fetch('https://api.x.ai/v1/chat/completions', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${GROK_API_KEY}`
+            },
             body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.1, responseMimeType: "application/json" }
+                model: model,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ],
+                temperature: 0.1,
+                response_format: { type: 'json_object' }
             })
         });
         
         if (!response.ok) {
             const errText = await response.text();
-            console.error("[Gemini] API HTTP Error:", response.status, errText);
+            console.error(`[Grok] HTTP Error ${response.status}:`, errText.substring(0, 300));
             
-            // Retry automático para rate limits (429)
-            if (response.status === 429 && retryCount < MAX_RETRIES) {
-                // Extrai tempo de retry da resposta, ou usa default de 5s
-                let retryDelay = 5000;
+            let errorDetail = `HTTP ${response.status}`;
+            if (response.status === 401) errorDetail = 'Chave API inválida ou expirada';
+            else if (response.status === 403) errorDetail = 'Acesso negado à API';
+            else if (response.status === 429) errorDetail = 'Rate limit — tente novamente em alguns segundos';
+            else if (response.status === 400) {
                 try {
                     const errJson = JSON.parse(errText);
-                    const retryInfo = errJson.error?.details?.find(d => d['@type']?.includes('RetryInfo'));
-                    if (retryInfo?.retryDelay) {
-                        const seconds = parseInt(retryInfo.retryDelay);
-                        if (seconds > 0 && seconds <= 60) retryDelay = (seconds + 2) * 1000;
-                    }
-                } catch(e) { /* usa default */ }
-                
-                console.info(`[Gemini] Rate limit — aguardando ${retryDelay/1000}s antes de tentar novamente...`);
-                await sleep(retryDelay);
-                return callGeminiAPI(prompt, lookupSource, retryCount + 1);
+                    errorDetail = errJson.error?.message || `Erro 400: ${errText.substring(0, 100)}`;
+                } catch(e) { errorDetail = 'Requisição inválida'; }
             }
             
-            return { success: false, results: [], error: `HTTP ${response.status}` };
+            return { success: false, results: [], error: errorDetail };
         }
         
         const data = await response.json();
-        console.info('[Gemini] Resposta recebida:', JSON.stringify(data).substring(0, 300));
+        console.info(`[Grok] ${model} respondeu com sucesso`);
         
-        if (!data.candidates || data.candidates.length === 0) {
-            console.warn('[Gemini] Nenhum candidato na resposta da API');
-            return { success: false, results: [], error: 'No candidates' };
+        // Formato OpenAI: data.choices[0].message.content
+        if (!data.choices || data.choices.length === 0) {
+            return { success: false, results: [], error: 'API não retornou resposta' };
         }
         
-        let rawText = data.candidates[0].content.parts[0].text.trim();
-        console.info('[Gemini] Texto bruto da IA:', rawText.substring(0, 500));
+        let rawText = (data.choices[0].message.content || '').trim();
+        console.info(`[Grok] Texto bruto:`, rawText.substring(0, 400));
         
+        // Limpa markdown se presente
         if (rawText.startsWith('```')) {
             rawText = rawText.replace(/^```(json)?\n?/, '').replace(/\n?```$/, '').trim();
         }
         
-        // Extração robusta: pega tudo entre [ e ] mesmo se tiver lixo ao redor
-        const bracketMatch = rawText.match(/\[[\s\S]*\]/);
-        if (bracketMatch) {
-            rawText = bracketMatch[0];
+        // Extrai array JSON — pode estar dentro de um objeto wrapper
+        let parsedData;
+        try {
+            parsedData = JSON.parse(rawText);
+        } catch(e) {
+            // Tenta encontrar array dentro do texto
+            const bracketMatch = rawText.match(/\[[\s\S]*\]/);
+            if (bracketMatch) {
+                parsedData = JSON.parse(bracketMatch[0]);
+            } else {
+                console.error('[Grok] Não foi possível parsear JSON:', rawText.substring(0, 200));
+                return { success: false, results: [], error: 'Resposta da IA não é JSON válido' };
+            }
         }
         
-        const geminiResults = JSON.parse(rawText);
-        
-        // Se a IA retornou lista vazia intencionalmente
-        if (!Array.isArray(geminiResults) || geminiResults.length === 0) {
-            console.info('[Gemini] IA retornou lista vazia — nenhum resultado relevante na visão da IA.');
-            return { success: true, results: [], error: null };  // success=true porque a IA RESPONDEU, só não achou nada
+        // Se veio como { results: [...] } ou { data: [...] }, extrai o array
+        // Se for um único objeto (ex: na busca vazia com apenas 1 match), converte para array
+        let aiResults = [];
+        if (Array.isArray(parsedData)) {
+            aiResults = parsedData;
+        } else if (parsedData.results && Array.isArray(parsedData.results)) {
+            aiResults = parsedData.results;
+        } else if (parsedData.data && Array.isArray(parsedData.data)) {
+            aiResults = parsedData.data;
+        } else if (parsedData.candidates && Array.isArray(parsedData.candidates)) {
+            aiResults = parsedData.candidates;
+        } else if (typeof parsedData === 'object' && parsedData !== null && (parsedData.id || parsedData.score)) {
+            aiResults = [parsedData];
         }
         
-        console.info(`[Gemini] IA retornou ${geminiResults.length} resultados:`, geminiResults);
+        if (!Array.isArray(aiResults) || aiResults.length === 0) {
+            console.info('[Grok] IA retornou lista vazia — nenhum resultado relevante.');
+            return { success: true, results: [], error: null };
+        }
         
-        const MIN_AI_SCORE = 60; // Score mínimo aceitável da IA
+        console.info(`[Grok] IA retornou ${aiResults.length} resultados:`, aiResults);
+        
+        const MIN_AI_SCORE = 60;
         const finalResults = [];
-        for (const g of geminiResults) {
-            // FILTRO: ignorar resultados com score abaixo do mínimo
+        for (const g of aiResults) {
             if (g.score !== undefined && g.score < MIN_AI_SCORE) {
-                console.info(`[Gemini] Ignorando membro id=${g.id} — score ${g.score} abaixo do mínimo (${MIN_AI_SCORE})`);
+                console.info(`[Grok] Ignorando id=${g.id} — score ${g.score} < ${MIN_AI_SCORE}`);
                 continue;
             }
             
-            // Busca blindada: Prioriza ID, depois nome exato, depois normalizado
             const original = lookupSource.find(c => 
                 (g.id !== undefined && c.member.id === g.id) || 
                 (g.nome && (c.member.nome === g.nome || c.member.empresa === g.nome)) ||
@@ -789,15 +792,14 @@ async function callGeminiAPI(prompt, lookupSource, retryCount = 0) {
             
             if (original) {
                 finalResults.push({ member: original.member, score: g.score, reason: g.reason });
-                console.info(`[Gemini] Membro encontrado: ${original.member.nome} (score: ${g.score})`);
-            } else {
-                console.warn(`[Gemini] Membro NÃO encontrado no banco: id=${g.id}, nome=${g.nome}`);
+                console.info(`[Grok] Match: ${original.member.nome} (score: ${g.score})`);
             }
         }
+        
         return { success: true, results: finalResults.sort((a,b) => b.score - a.score).slice(0, 5), error: null };
     } catch(e) {
-        console.error("[Gemini] Catch Error:", e.message || e);
-        return { success: false, results: [], error: e.message || 'Unknown error' };
+        console.error(`[Grok] Error:`, e.message || e);
+        return { success: false, results: [], error: e.message || 'Erro de conexão com a API' };
     }
 }
 
@@ -812,16 +814,16 @@ async function doSearch() {
     const hide = showLoading([
         'Acessando planilha...',
         'Cruzando especialidades...',
-        'IA Gemini analisando sua busca...',
-        'Filtrando resultados com inteligência artificial...',
-        'Gerando relatório final...'
+        'Consultando IA Grok...',
+        'Analisando compatibilidade...',
+        'Gerando resultados...'
     ]);
 
     try {
         membersData = await fetchData();
         console.info(`[Search] ${membersData.length} membros carregados. Buscando: "${query}"`);
         
-        // STEP 1: Busca local (sempre roda primeiro como backup)
+        // STEP 1: Busca local (sempre roda primeiro)
         let localResults = searchMembers(query);
         console.info(`[Search] Busca local encontrou ${localResults.length} candidatos`);
         
@@ -836,56 +838,93 @@ async function doSearch() {
             return;
         }
         
-        // STEP 3: Tenta IA Gemini (SEMPRE, para qualquer busca)
+        // STEP 3: IA Grok SEMPRE avalia os candidatos (se configurada)
         let results = [];
         let usedAI = false;
-        const geminiAvailable = GEMINI_API_KEY && GEMINI_API_KEY !== 'SUA_CHAVE_AQUI' && GEMINI_API_KEY.length >= 10;
+        let aiError = null;
         
-        if (geminiAvailable) {
-            console.info('[Search] Gemini disponível — enviando busca semântica completa...');
-            const aiResponse = await fullSemanticSearch(query, membersData);
+        if (isAIConfigured()) {
+            console.info('[Search] Grok configurado — enviando candidatos para análise IA...');
             
-            if (aiResponse.length > 0) {
-                // Merge inteligente: combina resultados da IA com busca local
-                // Adiciona membros da busca local que a IA pode ter perdido
-                const aiIds = new Set(aiResponse.map(r => r.member.id));
-                const mergedResults = [...aiResponse];
-                
-                // Busca local com score alto (>= 80) complementa a IA
-                for (const local of localResults) {
-                    if (!aiIds.has(local.member.id) && local.score >= 80) {
-                        mergedResults.push(local);
-                        console.info(`[Search] Complementando IA com resultado local: ${local.member.nome} (score local: ${local.score})`);
-                    }
-                }
-                
-                results = mergedResults.sort((a, b) => b.score - a.score).slice(0, 10);
-                usedAI = true;
-                console.info(`[Search] IA retornou ${aiResponse.length} + ${mergedResults.length - aiResponse.length} locais = ${results.length} resultados finais.`);
+            // Envia candidatos locais para a IA filtrar/reordenar
+            // Se a busca local encontrou resultados, envia esses
+            // Se não encontrou, envia os top 20 membros por ramo relevante
+            let candidatesForAI = localResults;
+            if (candidatesForAI.length === 0) {
+                // Sem resultados locais — manda top 20 membros com dados mais completos para IA avaliar
+                candidatesForAI = membersData
+                    .filter(m => m.ramo && m.ramo.length > 2)
+                    .slice(0, 30)
+                    .map(m => ({ member: m, score: 0 }));
+            }
+            
+            const aiResult = await analyzeWithAI(query, candidatesForAI);
+            usedAI = aiResult.aiUsed;
+            aiError = aiResult.error;
+            
+            if (aiResult.aiUsed && aiResult.results.length > 0) {
+                results = aiResult.results;
+                console.info(`[Search] IA retornou ${results.length} resultados relevantes.`);
+            } else if (aiResult.aiUsed && aiResult.results.length === 0) {
+                // IA respondeu mas disse que nenhum é relevante
+                console.info('[Search] IA analisou mas não encontrou resultados relevantes.');
+                results = [];
             } else {
-                console.warn('[Search] IA retornou vazio. Usando busca local como fallback inteligente.');
-                // Fallback: usa resultados locais se existem (com score >= 70)
+                // IA falhou — usa busca local como fallback
+                console.warn(`[Search] IA falhou: ${aiResult.error}. Usando busca local.`);
                 results = localResults;
             }
         } else {
-            console.info('[Search] Gemini não configurado — usando busca local.');
+            aiError = 'Chave API Grok não configurada. Configure GROK_API_KEY em config.js para habilitar a busca por IA.';
+            console.info('[Search] Grok não configurado — usando busca local.');
             results = localResults;
         }
         
         hide();
 
         if (results.length === 0) {
+            // Mostra estado vazio, mas com banner de erro da IA se aplicável
+            if (aiError) {
+                dom.emptyState.innerHTML = `
+                    ${renderAIErrorBanner(aiError)}
+                    <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white/5 mb-6 border border-white/10">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" class="text-zinc-600" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    </div>
+                    <h3 class="font-outfit text-2xl font-bold mb-3 tracking-tight text-white">Nenhum compatível</h3>
+                    <p class="text-zinc-400 font-light leading-relaxed max-w-sm mx-auto text-lg">Sua busca não resultou em membros compatíveis no momento.</p>
+                `;
+            } else {
+                dom.emptyState.innerHTML = `
+                    <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white/5 mb-6 border border-white/10">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" class="text-zinc-600" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    </div>
+                    <h3 class="font-outfit text-2xl font-bold mb-3 tracking-tight text-white">Nenhum compatível</h3>
+                    <p class="text-zinc-400 font-light leading-relaxed max-w-sm mx-auto text-lg">Sua busca detalhada não resultou em membros compatíveis desta área no momento.</p>
+                `;
+            }
             dom.emptyState.style.display = 'block';
             return;
         }
 
+        // Monta o HTML dos resultados
+        let resultsHTML = '';
+        
+        // Banner de erro da IA (se falhou mas temos resultados locais)
+        if (aiError && !usedAI) {
+            resultsHTML += renderAIErrorBanner(aiError);
+        }
+        
+        // Cards de resultados
+        resultsHTML += results.map(r => renderResultCard(r, query)).join('');
+        
         dom.resultsBadge.textContent = `${results.length} resultado${results.length > 1 ? 's' : ''}`;
-        dom.resultsTitle.textContent = usedAI ? 'Especialistas analisados por IA' : 'Especialistas encontrados';
-        dom.resultsList.innerHTML = results.map(r => renderResultCard(r, query)).join('');
+        dom.resultsTitle.innerHTML = (usedAI ? 'Especialistas analisados por IA ' : 'Especialistas encontrados ') + renderAIStatusBadge(usedAI);
+        dom.resultsList.innerHTML = resultsHTML;
         dom.resultsWrap.style.display = 'block';
 
     } catch(e) {
         hide();
+        console.error('[Search] Erro fatal:', e);
         alert('Erro ao buscar dados: ' + e.message);
     }
 }

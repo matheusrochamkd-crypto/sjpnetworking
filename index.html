@@ -264,8 +264,11 @@
         </div>
     </footer>
 
-    <script src="config.js" onerror="console.warn('config.js não encontrado — usando local.')"></script>
-    <script>if (typeof GEMINI_API_KEY === 'undefined') { window.GEMINI_API_KEY = ''; }</script>
-    <script src="app.js?v=9"></script>
+    <script src="config.js" onerror="console.warn('config.js não encontrado — IA desabilitada.')"></script>
+    <script>
+        if (typeof GROK_API_KEY === 'undefined') { window.GROK_API_KEY = ''; }
+        if (typeof GROK_MODEL === 'undefined') { window.GROK_MODEL = 'grok-4.1-fast'; }
+    </script>
+    <script src="app.js?v=10"></script>
 </body>
 </html>
