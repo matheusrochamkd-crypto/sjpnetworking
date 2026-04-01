@@ -669,7 +669,7 @@ ${JSON.stringify(candData)}`;
 
     const apiResult = await callGrokAPI(systemPrompt, userPrompt, candidates);
     if (apiResult.success) {
-        lastAIStatus = { success: true, error: null, model: GROK_MODEL };
+        lastAIStatus = { success: true, error: null, model: (typeof GROK_MODEL !== 'undefined' && GROK_MODEL) ? GROK_MODEL : 'grok-4-1-fast-non-reasoning' };
         return { results: apiResult.results, aiUsed: true, error: null };
     }
     
