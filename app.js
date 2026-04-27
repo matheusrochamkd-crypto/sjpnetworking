@@ -97,13 +97,7 @@ async function fetchData() {
 
 // ========== LOADING ANIMATION ==========
 const loadingMsgs = [
-    'A Inteligência Artificial da Eletron está pensando...',
-    'Acessando planilha do SJP Networking...',
-    'Lendo cadastros de membros...',
-    'Analisando {N} empresas...',
-    'Cruzando especialidades...',
-    'Calculando compatibilidade...',
-    'Quase pronto...'
+    'A Inteligência Artificial da Eletron está pensando...'
 ];
 
 function showLoading(customMsgs) {
@@ -885,11 +879,7 @@ async function doSearch() {
     dom.emptyState.style.display = 'none';
 
     const hide = showLoading([
-        'A Inteligência Artificial da Eletron está pensando...',
-        'Acessando planilha...',
-        'Consultando IA Grok...',
-        'Analisando compatibilidade...',
-        'Gerando resultados...'
+        'A Inteligência Artificial da Eletron está pensando...'
     ]);
 
     try {
@@ -1007,11 +997,7 @@ async function doAudit() {
     dom.syncBtn.classList.add('spinning');
 
     const hide = showLoading([
-        'A Inteligência Artificial da Eletron está pensando...',
-        'Acessando planilha do SJP Networking...',
-        'Verificando integridade dos dados...',
-        'Gerando relatório de saúde...',
-        'Pronto!'
+        'A Inteligência Artificial da Eletron está pensando...'
     ]);
 
     try {
