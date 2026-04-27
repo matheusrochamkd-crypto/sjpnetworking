@@ -107,19 +107,12 @@ const loadingMsgs = [
 function showLoading(customMsgs) {
     dom.loadingOverlay.style.display = 'flex';
     const msgs = customMsgs || loadingMsgs;
-    let idx = 0;
-    dom.loaderMsg.textContent = msgs[0].replace('{N}', membersData.length || '???');
-    const interval = setInterval(() => {
-        idx++;
-        if (idx < msgs.length) {
-            dom.loaderMsg.textContent = msgs[idx];
-        } else {
-            // Reinicia o ciclo se demorar muito
-            idx = 0;
-            dom.loaderMsg.textContent = msgs[idx];
-        }
-    }, 3000); // 3 segundos para dar tempo de ler os textos mais longos
-    return () => { clearInterval(interval); dom.loadingOverlay.style.display = 'none'; };
+    
+    // Seleciona uma frase aleatória da lista
+    const randomIdx = Math.floor(Math.random() * msgs.length);
+    dom.loaderMsg.textContent = msgs[randomIdx];
+    
+    return () => { dom.loadingOverlay.style.display = 'none'; };
 }
 
 // ========== SEMANTIC SEARCH ENGINE ==========
