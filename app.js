@@ -12,7 +12,7 @@ const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1woRI4hp-whQJIbS-8
 const COL = { NOME: 1, EMPRESA: 2, RAMO: 3, DESC: 4, WHATSAPP: 5, INSTAGRAM: 6, INFO: 7 };
 
 // ========== STATE ==========
-let membersData = [];
+let membersData = []; // Cache em memória para os dados da planilha
 let isLoading = false;
 
 // ========== DOM ==========
@@ -63,24 +63,36 @@ function parseCSV(text) {
 
 // ========== DATA FETCHER ==========
 async function fetchData() {
-    const resp = await fetch(SHEET_CSV_URL);
-    if (!resp.ok) throw new Error('Falha ao acessar a planilha');
-    const text = await resp.text();
-    const rows = parseCSV(text);
-    if (rows.length < 2) throw new Error('Planilha vazia');
-    const header = rows[0];
-    const data = rows.slice(1).filter(r => r.some(c => c !== ''));
-    return data.map((r, index) => ({
-        id: index + 1,
-        nome:      (r[COL.NOME] || '').trim(),
-        empresa:   (r[COL.EMPRESA] || '').trim(),
-        ramo:      (r[COL.RAMO] || '').trim(),
-        descricao: (r[COL.DESC] || '').trim(),
-        whatsapp:  (r[COL.WHATSAPP] || '').trim(),
-        instagram: (r[COL.INSTAGRAM] || '').trim(),
-        info:      (r[COL.INFO] || '').trim(),
-        _raw: r
-    }));
+    // Se já carregamos os dados nesta sessão, usamos o cache (ALTA PERFORMANCE)
+    if (membersData && membersData.length > 0) {
+        return membersData;
+    }
+
+    try {
+        const resp = await fetch(SHEET_CSV_URL);
+        if (!resp.ok) throw new Error('Falha ao acessar a planilha');
+        const text = await resp.text();
+        const rows = parseCSV(text);
+        if (rows.length < 2) throw new Error('Planilha vazia');
+        
+        const data = rows.slice(1).filter(r => r.some(c => c !== ''));
+        membersData = data.map((r, index) => ({
+            id: index + 1,
+            nome:      (r[COL.NOME] || '').trim(),
+            empresa:   (r[COL.EMPRESA] || '').trim(),
+            ramo:      (r[COL.RAMO] || '').trim(),
+            descricao: (r[COL.DESC] || '').trim(),
+            whatsapp:  (r[COL.WHATSAPP] || '').trim(),
+            instagram: (r[COL.INSTAGRAM] || '').trim(),
+            info:      (r[COL.INFO] || '').trim(),
+            _raw: r
+        }));
+        
+        return membersData;
+    } catch (e) {
+        console.error('[FetchData] Erro:', e);
+        throw e;
+    }
 }
 
 // ========== LOADING ANIMATION ==========
@@ -138,8 +150,10 @@ const synonymMap = {
     'whatsapp': ['whatsapp','chatbot','bot','atendimento','automacao'],
     
     // Construction & Engineering
-    'construcao': ['construcao','engenharia','obra','reforma','material de construcao','pedreiro','telhado','estrutura metalica'],
-    'reforma': ['reforma','construcao','obra','pedreiro','pintura'],
+    'construcao': ['construcao','engenharia','engenheiro','engenheira','obra','reforma','material de construcao','pedreiro','telhado','estrutura metalica','arquitetura','projeto','habite-se','inss de obra'],
+    'engenheiro': ['engenheiro','engenheira','engenharia','civil','eletrica','mecanica','obras','projeto','calculo','pericia','regularizacao'],
+    'engenharia': ['engenharia','engenheiro','engenheira','civil','eletrica','mecanica','obras','projeto','calculo','pericia','regularizacao'],
+    'reforma': ['reforma','construcao','obra','pedreiro','pintura','engenheiro','arquiteto'],
     'regularizacao': ['regularizacao','habite-se','cartorio','averbacao','inss de obra'],
     'arquitetura': ['arquitetura','interiores','projeto arquitetonico','paisagismo'],
     'eletrica': ['eletrica','engenharia eletrica','instalacao eletrica','spda','termografia'],
@@ -205,9 +219,6 @@ const synonymMap = {
     'energia solar': ['energia solar','fotovoltaico','fotovoltaica','solar','painel solar'],
     'energia': ['energia solar','fotovoltaico','solar','painel solar'],
     
-    // Consulting
-    'consultoria': ['consultoria','consultora','planejamento estrategico','mentoria'],
-
     // Furniture
     'moveis': ['moveis','mobiliario','sob medida','moveis planejados'],
     
@@ -222,7 +233,19 @@ const synonymMap = {
 
     // Print/Design
     'comunicacao visual': ['comunicacao visual','grafica','impressao','adesivo','placa','banner','fachada','letreiro'],
+
+    // ADICIONADOS / MELHORADOS
+    'mecanico': ['mecanico','mecanica','oficina','automotivo','reparo','manutencao','carro','veiculo'],
+    'conserto': ['conserto','reparo','manutencao','assistencia tecnica','reforma','ajuste','consertar','arrumar'],
+    'limpeza': ['limpeza','higienizacao','faxina','conservacao','limpeza profissional','lavagem','limpar'],
+    'pintor': ['pintor','pintura','reforma','construcao','acabamento'],
+    'festa': ['festa','evento','aniversario','casamento','buffet','dj','recreacao','comemoracao'],
 };
+
+// Auxiliar para escapar caracteres especiais de regex
+function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 function normalize(str) {
     return str.toLowerCase()
@@ -291,8 +314,6 @@ const stopWords = new Set([
     'meu','minha','todo','toda','cada','outro','outra','muito','pouco',
     'preciso','quero','busco','procuro','ajuda','resolver','problema','necessito',
     'de','um','no','na','do','da','ao','os','as','ou','em',
-    'alguem','alguém','algum','alguma','fazer','configurar','instalar','consertar',
-    'arrumar','trocar','colocar','tirar','mexer','ligar','desligar',
     'onde','quando','qual','quais','quem','porque','pois','entao',
     'aqui','ali','la','tambem','ainda','ja','agora','sempre','nunca',
     'bem','mal','bom','boa','ruim','melhor','pior','novo','nova',
@@ -333,11 +354,11 @@ function expandQuery(query) {
                 matches = (normKey === tok);
             } else if (isBigram) {
                 // Bigrams: ONLY exact/regex match, NO fuzzy (prevents "com ia" → "comida")
-                const regex = new RegExp('\\b' + tok + '\\b');
+                const regex = new RegExp('\\b' + escapeRegExp(tok) + '\\b');
                 matches = regex.test(normKey) || normKey === tok;
             } else {
                 // Strict word match for technical terms to avoid "inteligencia" matching "inteligencia artificial"
-                const regex = new RegExp('\\b' + tok + '\\b');
+                const regex = new RegExp('\\b' + escapeRegExp(tok) + '\\b');
                 matches = regex.test(normKey) || isFuzzyMatch(tok, normKey);
             }
             
@@ -348,12 +369,12 @@ function expandQuery(query) {
                         if (syn === tok) { matches = true; break; }
                     } else if (isBigram) {
                         // Bigrams: ONLY exact/regex match against synonyms too
-                        const regex = new RegExp('\\b' + tok + '\\b');
+                        const regex = new RegExp('\\b' + escapeRegExp(tok) + '\\b');
                         if (regex.test(syn) || syn === tok) {
                             matches = true; break;
                         }
                     } else {
-                        const regex = new RegExp('\\b' + tok + '\\b');
+                        const regex = new RegExp('\\b' + escapeRegExp(tok) + '\\b');
                         if (regex.test(syn) || isFuzzyMatch(tok, syn)) {
                             matches = true; break;
                         }
@@ -386,7 +407,7 @@ function calcCompatibility(member, expandedTerms) {
         // SHORT TERMS (≤3 chars like 'ia','rh','ti'): must match as WHOLE WORD
         // This prevents 'ia' from matching inside 'sociais', 'empresariais'
         if (term.length <= 3) {
-            const regex = new RegExp('\\b' + term + '\\b');
+            const regex = new RegExp('\\b' + escapeRegExp(term) + '\\b');
             return regex.test(normField);
         }
         
@@ -396,23 +417,34 @@ function calcCompatibility(member, expandedTerms) {
             return normField.includes(term);
         }
         
-        // For NAME/COMPANY fields: ONLY exact whole-word match
-        // This prevents "controle" matching "ControlG" company name
+        // For NAME/COMPANY fields: allow slight variations for long words (like gender)
         if (isNameField) {
-            const wordRegex = new RegExp('\\b' + term + '\\b');
-            return wordRegex.test(normField);
+            const wordRegex = new RegExp('\\b' + escapeRegExp(term) + '\\b');
+            if (wordRegex.test(normField)) return true;
+            
+            // Allow matching "engenheira" if searching for "engenheiro" in names
+            if (term.length >= 7) {
+                const stem = term.slice(0, -2); // engenh...
+                if (normField.includes(stem)) return true;
+            }
+            return false;
         }
         
         // SINGLE LONGER TERMS: word-boundary match to avoid partial substring matches
-        // Use word boundary regex first
-        const wordRegex = new RegExp('\\b' + term + '\\b');
+        const wordRegex = new RegExp('\\b' + escapeRegExp(term) + '\\b');
         if (wordRegex.test(normField)) return true;
         
         // Allow partial match only if term is the start of a word in the field
-        // AND the length difference is tiny (e.g., 'software' matches 'softwares')
+        // OR the field word starts with the term (handles 'engenheiro' matching 'engenheiros')
         const fieldWordList = normField.split(' ');
         for (const fw of fieldWordList) {
-            if (fw.startsWith(term) && (fw.length - term.length) <= 2) return true;
+            if (fw.startsWith(term)) return true;
+            if (term.startsWith(fw) && fw.length >= 4) return true;
+            
+            // Gender/Suffix flexibility for Portuguese
+            if (term.length >= 6 && fw.length >= 6) {
+                if (term.slice(0, -2) === fw.slice(0, -2)) return true; // engenh... matches engenh...
+            }
         }
         
         // Fuzzy word-level match (handles typos) — ONLY for longer words (6+ chars)
@@ -484,51 +516,32 @@ function generateReason(member, query) {
     return parts.length > 0 ? parts.join('. ') + '.' : 'Perfil compatível com sua busca.';
 }
 
-function searchMembers(query) {
+function searchMembers(query, semanticTerms = []) {
     if (!query.trim()) return [];
     
-    // ======== EXACT NAME/COMPANY MATCH ========
-    const exactQuery = normalize(query);
-    const queryWords = exactQuery.split(' ').filter(w => w.length > 1);
-    const exactMatches = membersData.filter(m => {
+    const terms = semanticTerms.length > 0 ? semanticTerms : expandQuery(query);
+    const scored = membersData.map(m => {
+        // EXACT NAME/COMPANY MATCH check first
+        const exactQuery = normalize(query);
         const normNome = normalize(m.nome || '');
         const normEmpresa = normalize(m.empresa || '');
-        // Full exact match
-        if (normNome === exactQuery || normEmpresa === exactQuery) return true;
-        // Partial match — only if query has 2+ words (looks like a name, not a category)
-        if (queryWords.length >= 2 && exactQuery.length >= 5) {
-            if (normNome.includes(exactQuery) || normEmpresa.includes(exactQuery)) return true;
+        
+        if (normNome === exactQuery || normEmpresa === exactQuery) {
+            return { member: m, score: 100 };
         }
-        return false;
+
+        return {
+            member: m,
+            score: calcCompatibility(m, terms)
+        };
     });
 
-    if (exactMatches.length > 0) {
-        const direct = exactMatches.map(m => ({
-            member: m,
-            score: 100,
-            reason: `Correspondência exata para "${query}".`
-        }));
-        direct.sort((a,b) => (a.member.nome.length + (a.member.empresa||'').length) - (b.member.nome.length + (b.member.empresa||'').length));
-        return direct.slice(0, 5);
-    }
-    // ==========================================
-
-    const expandedTerms = expandQuery(query);
-    
-    const scored = membersData.map(m => ({
-        member: m,
-        score: calcCompatibility(m, expandedTerms)
-    }));
-    
-    // Sort by score descending
-    const sorted = scored
-        .filter(s => s.score >= 70)
+    const scoredResults = scored
+        .filter(s => s.score > 0)
         .sort((a, b) => b.score - a.score);
-    
-    // Aumentamos a captação local de 30 para 60 candidatos.
-    // Isso dá margem GIGANTESCA para a IA receber de tudo e selecionar os 8 melhores,
-    // garantindo que não deixamos ninguém de fora antes mesmo da IA ver.
-    return sorted.slice(0, 60); 
+
+    // Limitamos aos 150 melhores para processamento de IA posterior
+    return scoredResults.slice(0, 150);
 }
 
 // ========== RENDER HELPERS ==========
@@ -542,10 +555,15 @@ function cleanPhone(raw) {
 }
 
 function waLink(phone) {
-    let num = cleanPhone(phone);
+    if (!phone) return '#';
+    
+    // Pega apenas a primeira sequência de 10 ou 11 números
+    // Resolve problemas de campos com dois números ou textos extras
+    const matches = phone.replace(/\s/g, '').match(/\d{10,11}/);
+    let num = matches ? matches[0] : phone.replace(/\D/g, '').slice(0, 11);
+    
     if (!num) return '#';
-    if (!num.startsWith('+') && !num.startsWith('55')) num = '55' + num;
-    if (num.startsWith('+')) num = num.slice(1);
+    if (!num.startsWith('55') && num.length >= 10) num = '55' + num;
     return `https://wa.me/${num}`;
 }
 
@@ -595,7 +613,41 @@ function escHtml(str) {
     return d.innerHTML;
 }
 
-// ========== GROK (xAI) AI INTEGRATION ==========
+// ========== IA SEARCH INTELLIGENCE ==========
+
+// Esta função usa a IA para expandir a busca ANTES de filtrar a planilha.
+// Isso garante que se o usuário buscar "reforma", a IA sugira "arquiteto, pedreiro, gesso", 
+// e todos apareçam no filtro local.
+async function getSearchTermsFromAI(query) {
+    if (!isAIConfigured()) return [query];
+
+    const model = (typeof GROK_MODEL !== 'undefined' && GROK_MODEL) ? GROK_MODEL : 'grok-4-1-fast-non-reasoning';
+
+    try {
+        const response = await fetch('/.netlify/functions/grok', {
+            method: 'POST',
+            body: JSON.stringify({
+                model: model,
+                messages: [
+                    { role: 'system', content: 'Você é um especialista em networking e negócios. Seu trabalho é receber uma necessidade do usuário e retornar uma lista de 15 a 20 palavras-chave, ramos de atividade e termos relacionados que podem atender a essa necessidade. Retorne apenas os termos separados por vírgula, sem explicações.' },
+                    { role: 'user', content: `Necessidade: "${query}"` }
+                ],
+                temperature: 0.3
+            })
+        });
+
+        const data = await response.json();
+        if (data.choices && data.choices[0].message.content) {
+            const aiTerms = data.choices[0].message.content.split(',').map(t => t.trim().toLowerCase());
+            console.info('[AI Search] Termos expandidos pela IA:', aiTerms);
+            return [...new Set([query, ...aiTerms])];
+        }
+        return [query];
+    } catch (e) {
+        console.warn('[AI Search] Falha na expansão semântica:', e);
+        return [query];
+    }
+}
 
 // Estado da IA — rastreado para informar o usuário
 let lastAIStatus = { success: false, error: null, model: null };
@@ -807,7 +859,7 @@ async function callGrokAPI(systemPrompt, userPrompt, lookupSource) {
             }
         }
         
-        return { success: true, results: finalResults.sort((a,b) => b.score - a.score).slice(0, 5), error: null };
+        return { success: true, results: finalResults.sort((a,b) => b.score - a.score).slice(0, 8), error: null };
     } catch(e) {
         console.error(`[Grok] Error:`, e.message || e);
         return { success: false, results: [], error: e.message || 'Erro de conexão com a API' };
@@ -834,21 +886,16 @@ async function doSearch() {
         membersData = await fetchData();
         console.info(`[Search] ${membersData.length} membros carregados. Buscando: "${query}"`);
         
-        // STEP 1: Busca local (sempre roda primeiro)
-        let localResults = searchMembers(query);
-        console.info(`[Search] Busca local encontrou ${localResults.length} candidatos`);
+        // NOVO: Expansão Semântica por IA (Garante que ninguém relevante fique de fora)
+        // A IA gera sinônimos e ramos relacionados antes de filtrarmos a planilha
+        const semanticTerms = await getSearchTermsFromAI(query);
         
-        // STEP 2: Busca por nome exato — se encontrou, retorna direto sem IA
-        if (localResults.length > 0 && localResults[0].score === 100) {
-            console.info('[Search] Match exato por nome/empresa — usando direto.');
-            hide();
-            const topMatchResults = localResults.slice(0, 10);
-            dom.resultsBadge.textContent = `${topMatchResults.length} resultado${topMatchResults.length > 1 ? 's' : ''}`;
-            dom.resultsTitle.textContent = 'Correspondência exata';
-            dom.resultsList.innerHTML = topMatchResults.map(r => renderResultCard(r, query)).join('');
-            dom.resultsWrap.style.display = 'block';
-            return;
-        }
+        // STEP 1: Busca local potente usando os termos da IA
+        let localResults = searchMembers(query, semanticTerms);
+        console.info(`[Search] Busca local (com expansão IA) encontrou ${localResults.length} candidatos`);
+        
+        // STEP 2: Removida a trava de match exato
+        // (Anteriormente o código retornava aqui se encontrasse score 100)
         
         // STEP 3: IA Grok SEMPRE avalia os candidatos (se configurada)
         let results = [];
@@ -858,11 +905,15 @@ async function doSearch() {
         if (isAIConfigured()) {
             console.info('[Search] Grok configurado — enviando candidatos para análise IA...');
             
-            // Envia até 30 candidatos que bateram nas palavras-chave para o Grok reordenar
-            // Se localResults for zero (nenhum termo encontrou similaridade local = 0 reais matches), 
-            // analyzeWithAI retorna array vazio direto sem processamento e aciona a UI vazia
             let candidatesForAI = localResults;
+            if (candidatesForAI.length === 0 && membersData.length > 0) {
+                console.info('[Search] Busca local vazia — enviando amostra aleatória da base para IA.');
+                const shuffled = [...membersData].sort(() => 0.5 - Math.random());
+                candidatesForAI = shuffled.slice(0, 60).map(m => ({ member: m, score: 50 }));
+            }
             
+            // Limitamos o que enviamos para a análise final da IA para manter velocidade,
+            // mas agora esses 60-150 candidatos são MUITO mais precisos.
             const aiResult = await analyzeWithAI(query, candidatesForAI);
             usedAI = aiResult.aiUsed;
             aiError = aiResult.error;
@@ -919,8 +970,8 @@ async function doSearch() {
             resultsHTML += renderAIErrorBanner(aiError);
         }
         
-        // Limita os resultados a no máximo 10 cartões para não poluir a tela do usuário final
-        const finalResults = results.slice(0, 10);
+        // Limita os resultados a no máximo 8 cartões para não poluir a tela do usuário final
+        const finalResults = results.slice(0, 8);
 
         // Cards de resultados
         resultsHTML += finalResults.map(r => renderResultCard(r, query)).join('');
