@@ -97,7 +97,11 @@ async function fetchData() {
 
 // ========== LOADING ANIMATION ==========
 const loadingMsgs = [
-    'A Inteligência Artificial da Eletron está pensando...'
+    'Silêncio, a Inteligência Artificial da Eletron está pensando...🤖',
+    'Enquanto processamos os dados... Sabia que a Eletron tem uma plataforma para te ensinar a dominar a Inteligência Artificial?🤖',
+    'Enquanto processamos os dados... Sabia que a Eletron automatiza os processos chatos da sua operação?🤖',
+    'Enquanto a IA faz o trabalho duro aqui... Quer entender como aplicar isso na sua empresa também?🤖',
+    'Lendo centenas de dados em 2 segundos... Sua equipe ainda perde tempo com processos que uma IA poderia resolver?🤖'
 ];
 
 function showLoading(customMsgs) {
@@ -108,9 +112,13 @@ function showLoading(customMsgs) {
     const interval = setInterval(() => {
         idx++;
         if (idx < msgs.length) {
-            dom.loaderMsg.textContent = msgs[idx].replace('{N}', membersData.length || '???');
+            dom.loaderMsg.textContent = msgs[idx];
+        } else {
+            // Reinicia o ciclo se demorar muito
+            idx = 0;
+            dom.loaderMsg.textContent = msgs[idx];
         }
-    }, 900);
+    }, 3000); // 3 segundos para dar tempo de ler os textos mais longos
     return () => { clearInterval(interval); dom.loadingOverlay.style.display = 'none'; };
 }
 
@@ -878,9 +886,7 @@ async function doSearch() {
     dom.resultsWrap.style.display = 'none';
     dom.emptyState.style.display = 'none';
 
-    const hide = showLoading([
-        'A Inteligência Artificial da Eletron está pensando...'
-    ]);
+    const hide = showLoading();
 
     try {
         membersData = await fetchData();
@@ -996,9 +1002,7 @@ async function doAudit() {
 
     dom.syncBtn.classList.add('spinning');
 
-    const hide = showLoading([
-        'A Inteligência Artificial da Eletron está pensando...'
-    ]);
+    const hide = showLoading();
 
     try {
         membersData = await fetchData();
