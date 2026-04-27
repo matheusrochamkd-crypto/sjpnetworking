@@ -228,8 +228,9 @@ const synonymMap = {
     // Insurance
     'protecao veicular': ['protecao veicular','seguro auto','veicular','guincho'],
 
-    // Optical
-    'oculos': ['oculos','otica','lentes'],
+    // Health & Beauty / Optical
+    'otica': ['otica','optica','oculos','lentes','visao','armaçao','exame de vista','oftalmologista'],
+    'oculos': ['oculos','otica','optica','lentes','visao','armaçao'],
 
     // Print/Design
     'comunicacao visual': ['comunicacao visual','grafica','impressao','adesivo','placa','banner','fachada','letreiro'],
@@ -473,11 +474,15 @@ function calcCompatibility(member, expandedTerms) {
     // BASE SCORE: determined by which field has the best match
     // Agora aceitamos termos que surgem apenas na Descrição/Info (score 70+) 
     // deixando a xAI decidir a verdadeira relevância.
+    // SCORE CALCULATION
     let base = 0;
-    if (ramoHits >= 3) base = 92;
-    else if (ramoHits >= 2) base = 87;
-    else if (ramoHits >= 1) base = 82;
-    else if (empHits >= 1) base = 78;
+    // Ramo match is high priority (82-92)
+    if (ramoHits >= 3) base = 95;
+    else if (ramoHits >= 2) base = 90;
+    else if (ramoHits >= 1) base = 85;
+    // Empresa match (78-82)
+    else if (empHits >= 1) base = 82;
+    // Descrição match (70-75)
     else if (descHits >= 2) base = 75;
     else if (descHits >= 1 || infoHits >= 1) base = 70;
     else {
@@ -519,7 +524,11 @@ function generateReason(member, query) {
 function searchMembers(query, semanticTerms = []) {
     if (!query.trim()) return [];
     
-    const terms = semanticTerms.length > 0 ? semanticTerms : expandQuery(query);
+    // SEMPRE inclui os termos locais (incluindo a palavra original)
+    // Isso garante que a IA não "perca" o termo principal da busca
+    const localTerms = expandQuery(query);
+    const allTerms = [...new Set([...localTerms, ...semanticTerms])];
+    
     const scored = membersData.map(m => {
         // EXACT NAME/COMPANY MATCH check first
         const exactQuery = normalize(query);
@@ -532,7 +541,7 @@ function searchMembers(query, semanticTerms = []) {
 
         return {
             member: m,
-            score: calcCompatibility(m, terms)
+            score: calcCompatibility(m, allTerms)
         };
     });
 
